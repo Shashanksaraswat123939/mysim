@@ -1,12 +1,10 @@
-// C ABI for the browser page. Every number, name and curve the page shows comes
-// from the firmware's own code through these functions.
 #include "world.h"
 
 namespace {
 
 World g_world;
-float g_centre[sim::kMaxCentre * 5];  // x, y, curvature, planned speed, line present
-float g_sensors[2 * config::kSensorCount * 3];  // per sensor: value, x, y. Front row, then rear row.
+float g_centre[sim::kMaxCentre * 5];
+float g_sensors[2 * config::kSensorCount * 3];
 int g_headlessOutcome = 0;
 
 Mode modeFrom(int m) {
@@ -15,7 +13,7 @@ Mode modeFrom(int m) {
   return (Mode)m;
 }
 
-}  // namespace
+}
 
 extern "C" {
 
@@ -28,7 +26,6 @@ __attribute__((export_name("mode_summary"))) const char* mode_summary(int i) { r
 __attribute__((export_name("default_pid_speed"))) float default_pid_speed() { return config::kPidSpeed; }
 __attribute__((export_name("plan_top_speed"))) float plan_top_speed() { return config::kPlanVMax; }
 
-// Robot and sensor geometry, so the drawing matches the firmware's numbers.
 __attribute__((export_name("geometry"))) float geometry(int which) {
   switch (which) {
     case 0: return config::kWheelBase;
@@ -50,7 +47,6 @@ __attribute__((export_name("geometry"))) float geometry(int which) {
 __attribute__((export_name("outcome_name"))) const char* outcome_name(int i) { return outcomeName((Outcome)i); }
 __attribute__((export_name("outcome_short"))) const char* outcome_short(int i) { return outcomeShort((Outcome)i); }
 
-// The physical robot the simulator uses, field by field (see PlantParams in sim/world.h).
 __attribute__((export_name("plant_value"))) float plant_value(int which) {
   switch (which) {
     case 0: return kRealRobot.mass;
@@ -70,7 +66,6 @@ __attribute__((export_name("plant_value"))) float plant_value(int which) {
   return 0.0f;
 }
 
-// Physical state of the robot in the run, for the page's readouts.
 __attribute__((export_name("run_wheel_actual_left"))) float run_wheel_actual_left() { return g_world.actualWheelLeft(); }
 __attribute__((export_name("run_wheel_actual_right"))) float run_wheel_actual_right() { return g_world.actualWheelRight(); }
 __attribute__((export_name("run_slip_left"))) float run_slip_left() { return g_world.slipLeft(); }
@@ -98,7 +93,6 @@ __attribute__((export_name("run_pose_heading"))) float run_pose_heading() { retu
 __attribute__((export_name("run_track_length"))) float run_track_length() { return g_world.trackLength(); }
 __attribute__((export_name("run_plan_lap"))) float run_plan_lap() { return g_world.planLapTime(); }
 
-// Centre line of the loaded map: five floats per point.
 __attribute__((export_name("run_centre_count"))) int run_centre_count() { return g_world.centreCount(); }
 __attribute__((export_name("run_centre"))) float* run_centre() {
   const CentrePoint* pts = g_world.centre();
@@ -112,7 +106,6 @@ __attribute__((export_name("run_centre"))) float* run_centre() {
   return g_centre;
 }
 
-// Sensor readings for the current instant: value (0 white .. 1 black), x, y per sensor.
 __attribute__((export_name("run_sensors"))) float* run_sensors() {
   for (uint8_t i = 0; i < 2 * config::kSensorCount; ++i) {
     g_sensors[i * 3 + 0] = g_world.sensorValue(i);
@@ -122,15 +115,12 @@ __attribute__((export_name("run_sensors"))) float* run_sensors() {
   return g_sensors;
 }
 
-// Double IR: the curvature the robot measured, and the true curvature of the centre line under it (1/m).
 __attribute__((export_name("run_estimated_curvature"))) float run_estimated_curvature() { return g_world.estimatedCurvature(); }
 __attribute__((export_name("run_true_curvature"))) float run_true_curvature() { return g_world.trueCurvature(); }
 
 __attribute__((export_name("run_trail_count"))) int run_trail_count() { return g_world.trailCount(); }
 __attribute__((export_name("run_trail"))) const float* run_trail() { return g_world.trailXY(); }
 
-// Runs one map to its end with no rendering, for the comparison table.
-// Returns the lap time in seconds, or -1 if the run did not finish.
 __attribute__((export_name("headless_lap"))) float headless_lap(int map, int mode, float pidSpeed) {
   if (!g_world.start((uint8_t)map, modeFrom(mode), pidSpeed)) {
     g_headlessOutcome = (int)Outcome::Stopped;
@@ -142,4 +132,4 @@ __attribute__((export_name("headless_lap"))) float headless_lap(int map, int mod
 }
 __attribute__((export_name("headless_outcome"))) int headless_outcome() { return g_headlessOutcome; }
 
-}  // extern "C"
+}

@@ -39,7 +39,6 @@ LineEstimate estimateLine(const float* sensors) {
   float sum = 0.0f;
   float moment = 0.0f;
   for (uint8_t i = 0; i < config::kSensorCount; ++i) {
-    // Sensor 0 is the far left, so it has the most positive lateral position.
     const float x = ((config::kSensorCount - 1) * 0.5f - i) * config::kSensorSpacing;
     sum += sensors[i];
     moment += sensors[i] * x;
@@ -51,7 +50,6 @@ LineEstimate estimateLine(const float* sensors) {
 }
 
 float lineHeading(float frontOffset, float rearOffset, float frontDist, float rearDist) {
-  // yF - yR = theta * (a + b) + kappa * (a^2 - b^2) / 2. The kappa term is zero when a == b.
   return (frontOffset - rearOffset) / (frontDist + rearDist);
 }
 
@@ -111,14 +109,13 @@ Command LineController::update(const float* sensors, float dt, const float* rear
   switch (mode_) {
     case Mode::PidOnly: {
       if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
-      // Gains and governor are scheduled with the base speed (see config.h).
       const float blend = mlite::clamp((tuning_.pidSpeed - config::kPidGainSpeedLow) /
                                            (config::kPidGainSpeedHigh - config::kPidGainSpeedLow),
                                        0.0f, 1.0f);
       const float kp = config::kPidKpLow + (config::kPidKpHigh - config::kPidKpLow) * blend;
       const float kd = config::kPidKdLow + (config::kPidKdHigh - config::kPidKdLow) * blend;
       const float slowdown = config::kPidSlowdownLow + (config::kPidSlowdownHigh - config::kPidSlowdownLow) * blend;
-      const float offset = est.seen ? est.offset : lastOffset_;  // hold the last offset in a gap
+      const float offset = est.seen ? est.offset : lastOffset_;
       omega = pid(offset, dt, kp, kd);
       v = tuning_.pidSpeed / (1.0f + slowdown * mlite::fabs(omega) +
                               config::kPidOffsetSlowdownHigh * blend * mlite::fabs(offset));
@@ -126,15 +123,11 @@ Command LineController::update(const float* sensors, float dt, const float* rear
     }
     case Mode::FullMapBlind:
     case Mode::FullMapIr: {
-      // Feed-forward: the planned speed and the map's curvature at the robot's
-      // dead-reckoned position along the route.
       v = plan_->speedAt(s_);
       if (v < config::kLaunchSpeed) v = config::kLaunchSpeed;
       omega = v * track_->curvatureAt(s_);
 
       if (mode_ == Mode::FullMapIr) {
-        // The tape ends at the finish, so with sensors the robot can see the end
-        // directly: keep following past the dead-reckoned end until the line is gone.
         if (lostTime_ > config::kLostTimeout) {
           const RunStatus status = s_ >= track_->length() ? RunStatus::Finished : RunStatus::GaveUp;
           return Command{0.0f, 0.0f, status};
@@ -142,21 +135,20 @@ Command LineController::update(const float* sensors, float dt, const float* rear
         if (est.seen) {
           omega += pid(est.offset, dt, tuning_.kp, tuning_.kd);
         } else {
-          havePrev_ = false;  // no derivative spike when the line comes back
+          havePrev_ = false;
         }
       }
 
       s_ += v * dt;
       if (mode_ == Mode::FullMapBlind && s_ >= track_->length()) {
-        return Command{0.0f, 0.0f, RunStatus::Finished};  // blind: it can only trust the plan
+        return Command{0.0f, 0.0f, RunStatus::Finished};
       }
       break;
     }
     case Mode::DoubleIr:
-      break;  // handled above, before the switch
+      break;
   }
 
-  // Differential drive: the wheel on the inside of the turn runs slower.
   const float half = 0.5f * config::kWheelBase;
   Command cmd;
   cmd.left = mlite::clamp(v - omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
@@ -166,13 +158,8 @@ Command LineController::update(const float* sensors, float dt, const float* rear
 }
 
 Command LineController::doubleIr(const LineEstimate& front, const float* rearSensors, float dt) {
-  // With no line in sight the robot can only give up, as Normal PID does.
   if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
 
-  // 1. Curvature of the line under the robot. The rows give the line's direction relative to the
-  //    robot, theta. Between two moments, theta changes by kappa*v*dt minus the robot's own turn,
-  //    so kappa = (rate of change of theta + robot turn rate) / v. The robot's turn rate comes
-  //    from the encoders. Both pieces are smoothed with the same time constant.
   if (rearSensors != nullptr && front.seen) {
     const LineEstimate back = estimateLine(rearSensors);
     if (back.seen) {
@@ -186,28 +173,24 @@ Command LineController::doubleIr(const LineEstimate& front, const float* rearSen
         theta_ += a * (theta - theta_);
         thetaRate_ += a * ((theta_ - prevTheta) / dt - thetaRate_);
       }
-      const float turnRate = (encR_ - encL_) / config::kWheelBase;  // positive = turning left
+      const float turnRate = (encR_ - encL_) / config::kWheelBase;
       const float v = mlite::fmax(speedCmd_, config::kLaunchSpeed);
       kappa_ += a * ((thetaRate_ + turnRate) / v - kappa_);
     }
   }
 
-  // 2. Speed from the curve: the sideways grip limit gives v = sqrt(aLat / |kappa|), so a wide
-  //    bend (small kappa) allows more speed and a tight bend (large kappa) less. The speed moves
-  //    no faster than the plan's acceleration and braking limits.
   const float absK = mlite::fmax(mlite::fabs(kappa_), 1e-3f);
   float target = mlite::sqrt(config::kDoubleIrLatAccel / absK);
   if (target > config::kDoubleIrVMax) target = config::kDoubleIrVMax;
   speedCmd_ = mlite::clamp(target, speedCmd_ - config::kPlanBrake * dt, speedCmd_ + config::kPlanAccel * dt);
   if (speedCmd_ < config::kLaunchSpeed) speedCmd_ = config::kLaunchSpeed;
 
-  // 3. Steering: feed-forward from the measured curvature, plus PID on the front row's offset.
   float omega = speedCmd_ * kappa_;
   if (front.seen) {
     lastOffset_ = front.offset;
     omega += pid(front.offset, dt, tuning_.kp, tuning_.kd);
   } else {
-    havePrev_ = false;  // no derivative spike when the line comes back
+    havePrev_ = false;
   }
 
   const float half = 0.5f * config::kWheelBase;

@@ -1,6 +1,4 @@
 #pragma once
-// Tiny math helpers so the same control code builds for AVR, host tests and
-// WebAssembly without a libm. Accuracy is about 2e-4, far finer than the sensors.
 #include <stdint.h>
 
 namespace mlite {
@@ -19,7 +17,6 @@ inline float wrapAngle(float a) {
   return a;
 }
 
-// Odd Taylor polynomial, reflected so it is only evaluated on [-pi/2, pi/2].
 inline float sin(float x) {
   x = wrapAngle(x);
   if (x > kHalfPi) x = kPi - x;
@@ -30,4 +27,4 @@ inline float sin(float x) {
 
 inline float cos(float x) { return sin(x + kHalfPi); }
 
-}  // namespace mlite
+}

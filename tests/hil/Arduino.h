@@ -1,5 +1,3 @@
-// Host stand-in for the parts of the Arduino core the firmware uses. The pin numbers
-// and sensor levels are wired to the simulated robot by tests/hil/hil_main.cpp.
 #pragma once
 #include <stdint.h>
 #include <stdio.h>

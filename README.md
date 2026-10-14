@@ -35,21 +35,21 @@ simulated robot is a physics model (mass, friction, rolling loss, motor stall fo
 
 | Map | plan | Normal PID (0.25 m/s) | Full map (blind) | Full map + IR | Double IR |
 |---|---|---|---|---|---|
-| Warm-Up Oval | 6.06 | 23.30 | derailed | 7.20 | 12.05 |
+| Warm-Up Oval | 6.06 | 23.31 | derailed | 7.20 | 12.05 |
 | Chicane | 3.74 | 12.08 | derailed | 4.28 | 6.08 |
-| Hairpin Alley | 5.18 | 16.27 | derailed | 5.46 | 7.50 |
-| Dashed Line | 3.57 | 13.32 | derailed | 4.30 | 6.90 |
-| Zig-Zag | 3.99 | 10.94 | derailed | 4.17 | 5.03 |
-| Sweepers | 5.58 | 24.08 | derailed | 6.68 | 13.15 |
+| Hairpin Alley | 5.18 | 16.27 | derailed | 5.47 | 7.50 |
+| Dashed Line | 3.57 | 13.32 | derailed | 4.29 | 6.90 |
+| Zig-Zag | 3.99 | 10.93 | derailed | 4.17 | 5.03 |
+| Sweepers | 5.58 | 24.09 | derailed | 6.68 | 13.15 |
 
 Robustness, from the tests (`tests/test_core.cpp`):
 
-- Full map + IR finishes every map on the default run, and 239 of 240 seeded runs (40 noise seeds per map).
+- Full map + IR finishes every map on the default run, and 240 of 240 seeded runs (40 noise seeds per map).
   Its gains were retuned when the physics model changed, so the earlier figure of 0 failures no longer applies.
-- Normal PID completes every map on the default run, and 240 of 240 seeded runs (40 per map) at the default
-  speed. Its steering gains scale up with its base speed, and it slows down as its steering effort and line
-  offset grow (`kPidGain*`, `kPidSlowdown*` and `kPidOffsetSlowdownHigh` in `config.h`). Re-checked on the
-  physics model: 240 of 240 seeded runs at every slider speed from 0.20 to 0.90 m/s.
+- Normal PID completes every map on the default run, and 239 of 240 seeded runs (40 per map) at the default
+  speed. Dashed Line is the one run that does not finish (39 of 40). Its steering gains scale up with its base speed, and it slows down as its steering effort and line
+  offset grow (`kPidGain*`, `kPidSlowdown*` and `kPidOffsetSlowdownHigh` in `config.h`). The slider sweep from
+  0.20 to 0.90 m/s is not produced by the current export tool, so it is not claimed here.
 - Double IR finishes every map on the default run and 240 of 240 seeded runs (40 per map). Its curvature
   estimate is within a median of 6% to 16% on the curved parts of each map. Its speed is capped at 0.40 m/s
   because the front row sees a bend only 4 cm ahead. Above about 0.5 m/s, it fails. The radius term only
@@ -128,8 +128,9 @@ simulated robot (a hardware-in-the-loop check), and then rebuilds `web/line_foll
 - The page's simulator is a physics model, not a measurement of a real robot. Its values (mass, friction,
   rolling loss, motor stall force, tyre stiffness, sensor noise) are chosen to be plausible, and the results
   depend on those choices. They are in `PlantParams` in `sim/world.h`. The controllers are never told them.
-- I could not compile the sketch with the real AVR toolchain here (no `avr-gcc` or
-  `arduino-cli`). It is checked by compiling against a mock Arduino API and running it in the
+- The firmware compiles with `avr-gcc` for the ATmega2560 (`-Wall -Wextra -Werror`), but it is not linked
+  against the Arduino core (`arduino-cli` is not installed here), so the sketch is checked against a mock Arduino
+  API and run in the
   hardware-in-the-loop harness. A bench test on a real robot is still needed.
 - The planner assumes the robot tracks the planned speed. The mixed mode corrects steering
   from the IR sensors, but not along-track progress, so a large speed error would show up as a

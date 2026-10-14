@@ -487,8 +487,9 @@ change, so the observer built on the command was wrong by more than 100%.
   where the estimate lags by about the smoothing time.
 - *Speed is limited by reaction time, not by the grip rule.* The front row sees a bend 4 cm before the axle.
   At 0.8 m/s that is about 50 ms, and braking from 0.8 to 0.4 m/s takes about 0.2 m. With no speed cap, Double
-  IR completes 16 of 48 seeded runs. Capped at 0.50 m/s it completes 46 of 48, and at 0.40 m/s it completes
-  every run (240 of 240 across the 40-seed test).
+  IR completes 16 of 48 seeded runs in an earlier sweep. Capped at 0.50 m/s it completes 46 of 48 in that sweep,
+  and at 0.40 m/s it completes every run (240 of 240 in the current 40-seed export). The 16 and 46 figures are
+  not reproduced by the current tools.
 - *The grip rule itself is physical.* At a fixed speed, the sideways slide grows on tighter bends. At 0.5 m/s
   the slide is 2.2 cm/s on a 10 cm radius and 0.4 cm/s on a 50 cm radius (`testGripPhysics` in `tests/test_core.cpp`).
   So the speed limit must fall as the radius gets tighter, which is `v = sqrt(aLat * R)`. The sentence "if the
@@ -496,7 +497,7 @@ change, so the observer built on the command was wrong by more than 100%.
   physical direction.
 - *The radius term barely matters here.* With the 0.40 m/s cap, `sqrt(1.6 / |kappa|)` is below the cap only
   for radii under about 10 cm. On these maps that is only the hairpins. The reversed rule (speeding up on
-  tight bends) also completed 6 of 6 maps and 48 of 48 seeds, because the cap sets the speed on every bend.
+  tight bends) also completed 6 of 6 maps in an earlier sweep (not reproduced by the current tools), because the cap sets the speed on every bend.
   The data cannot yet tell the two rules apart. To make the radius matter, the robot needs to know a bend
   before it reaches it, which needs a front row further ahead.
 
@@ -816,7 +817,7 @@ the real world.
 | PID gains and governor | Kp, Kd, Ki and governor values | `config.h` | Tuned on this simulator and tested on its own noise model, so they will need retuning. |
 | Calibration levels | Raw 100 for black, 900 for white | `hardware.cpp` and the HIL mock | The mock mapping is invented, so real calibration is untested. |
 | Test seeds | 40 noise seeds per map | `tools/export_results.cpp` | The robot is the same in every seeded run; only noise changes. |
-| Microcontroller | Mock Arduino API on the host | `tests/hil/Arduino.h` | Not compiled with avr-gcc. Timing, RAM use and float speed are unverified on a board. |
+| Microcontroller | Mock Arduino API on the host | `tests/hil/Arduino.h` | Compiled with avr-gcc for ATmega2560, not linked against the Arduino core. Timing and float speed are unverified on a board. |
 
 The key risks, in order:
 

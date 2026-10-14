@@ -1,8 +1,3 @@
-// Line follower firmware. Open this folder in the Arduino IDE (or run arduino-cli)
-// and flash an Arduino Mega 2560. Choose the map and the control mode below.
-//
-// The control code lives in the other .cpp/.h files in this folder. The same files
-// are compiled into the browser simulator, so what you see there is what runs here.
 #include <Arduino.h>
 #include "config.h"
 #include "hardware.h"
@@ -11,13 +6,8 @@
 #include "planner.h"
 #include "track.h"
 
-// ---- Choose what to run -------------------------------------------------------
-// kSelectedMap indexes maps.cpp (0 = Warm-Up Oval .. 5 = Sweepers).
-// kSelectedMode is Mode::PidOnly, Mode::FullMapBlind or Mode::FullMapIr.
 constexpr uint8_t kSelectedMap = 0;
 constexpr Mode kSelectedMode = Mode::FullMapIr;
-// Double IR needs a second sensor row behind the axle and wheel encoders. The hardware layer does not
-// read either yet, so the sketch refuses to build that mode. Remove this line once they are wired.
 static_assert(kSelectedMode != Mode::DoubleIr, "Double IR needs the rear sensor row and wheel encoders");
 
 constexpr uint32_t kTelemetryPeriodMs = 100;
@@ -74,7 +64,6 @@ void loop() {
     return;
   }
 
-  // Run the control loop at a fixed rate, using the measured time step.
   const uint32_t now = micros();
   const uint32_t elapsed = now - g_lastMicros;
   if (elapsed < (uint32_t)(config::kControlPeriod * 1000000.0f)) return;

@@ -3,8 +3,8 @@
 
 namespace {
 
-uint16_t g_rawBlack[config::kSensorCount];  // lowest reading seen: over the black tape
-uint16_t g_rawWhite[config::kSensorCount];  // highest reading seen: over the white floor
+uint16_t g_rawBlack[config::kSensorCount];
+uint16_t g_rawWhite[config::kSensorCount];
 
 void driveMotor(uint8_t in1, uint8_t in2, uint8_t pwm, float mps) {
   int duty = (int)(mlite::fabs(mps) / config::kWheelMaxSpeed * 255.0f);
@@ -14,7 +14,7 @@ void driveMotor(uint8_t in1, uint8_t in2, uint8_t pwm, float mps) {
   analogWrite(pwm, duty);
 }
 
-}  // namespace
+}
 
 void hardwareInit() {
   pinMode(kPinIrEmitter, OUTPUT);
@@ -28,11 +28,11 @@ void hardwareInit() {
   pinMode(kPinRightIn2, OUTPUT);
   pinMode(kPinRightPwm, OUTPUT);
   pinMode(kPinStandby, OUTPUT);
-  digitalWrite(kPinStandby, HIGH);  // TB6612FNG out of standby
+  digitalWrite(kPinStandby, HIGH);
 
   for (uint8_t i = 0; i < config::kSensorCount; ++i) {
     g_rawBlack[i] = 0;
-    g_rawWhite[i] = 1023;  // until calibrated, the full range is assumed
+    g_rawWhite[i] = 1023;
   }
   stopWheels();
 }
@@ -41,7 +41,6 @@ void readSensors(float out[config::kSensorCount]) {
   for (uint8_t i = 0; i < config::kSensorCount; ++i) {
     const float raw = (float)analogRead(kSensorPins[i]);
     const float span = (float)(g_rawWhite[i] - g_rawBlack[i]);
-    // Black reads low, so the black end of the scale is the 1.0 end.
     out[i] = mlite::clamp(((float)g_rawWhite[i] - raw) / (span > 20.0f ? span : 20.0f), 0.0f, 1.0f);
   }
 }
@@ -51,7 +50,7 @@ void calibrateSensors() {
     g_rawBlack[i] = 1023;
     g_rawWhite[i] = 0;
   }
-  driveWheels(-0.25f, 0.25f);  // rotate in place, left wheel back and right wheel forward
+  driveWheels(-0.25f, 0.25f);
   const uint32_t start = millis();
   while (millis() - start < 2000) {
     for (uint8_t i = 0; i < config::kSensorCount; ++i) {

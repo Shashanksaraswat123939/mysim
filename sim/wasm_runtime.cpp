@@ -1,6 +1,3 @@
-// Freestanding WebAssembly has no C library, so the compiler's block copy and fill
-// helpers are provided here. Built with -fno-builtin so the loops are not turned
-// back into calls to themselves.
 #include <stddef.h>
 
 extern "C" {
@@ -18,4 +15,4 @@ __attribute__((used)) void* memset(void* dst, int c, size_t n) {
   return dst;
 }
 
-}  // extern "C"
+}

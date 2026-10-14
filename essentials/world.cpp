@@ -3,8 +3,6 @@
 
 namespace {
 
-// tanh by a continued-fraction (Lambert) form, accurate to about 1e-6 for |z| < 5.
-// The simulator needs it for the tyre curves; the firmware never does.
 float tanhApprox(float z) {
   if (z > 4.97f) return 1.0f;
   if (z < -4.97f) return -1.0f;
@@ -14,7 +12,7 @@ float tanhApprox(float z) {
   return num / den;
 }
 
-}  // namespace
+}
 
 bool World::start(uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams& plant, uint32_t seed) {
   const MapInfo& map = mapInfo(mapIndex);
@@ -67,7 +65,7 @@ void World::buildCentre() {
     if (steps < 1) steps = 1;
     const float ds = seg.length / steps;
     for (uint16_t j = 0; j < steps && n < sim::kMaxCentre; ++j) {
-      const float mid = th + 0.5f * seg.curvature * ds;  // midpoint rule for the arc
+      const float mid = th + 0.5f * seg.curvature * ds;
       x += ds * mlite::cos(mid);
       y += ds * mlite::sin(mid);
       th += seg.curvature * ds;
@@ -102,12 +100,10 @@ float World::uniform() {
 }
 
 float World::gauss() {
-  // Sum of four uniforms, rescaled to unit variance: close enough for sensor noise.
   return (uniform() + uniform() + uniform() + uniform() - 2.0f) * 1.7320508f;
 }
 
 void World::sense() {
-  // Two rows: the front bar ahead of the axle, and the rear bar behind it. Both use the same sensors.
   const float c = mlite::cos(th_);
   const float s = mlite::sin(th_);
   for (uint8_t row = 0; row < 2; ++row) {
@@ -120,7 +116,6 @@ void World::sense() {
       sensorX_[k] = px;
       sensorY_[k] = py;
 
-      // Reflectance falls off over 6 mm either side of the tape's edge.
       const uint16_t j = nearest(px, py, robotIdx_);
       const CentrePoint& p = centre_[j];
       const float dx = px - p.x;
@@ -133,15 +128,11 @@ void World::sense() {
   }
 }
 
-// One drive wheel. The motor pushes with a force that falls as the wheel speeds up (back-EMF),
-// and the tyre pushes back through a slip-ratio curve capped at friction x normal force.
-// The wheel has very little inertia, so its speed is the one where motor and tyre forces balance.
-// That is found with a few Newton steps. Returns the longitudinal tyre force.
 float World::wheelForce(float duty, float surfaceSpeed, float groundSpeed, float normalForce,
                         float& wheelSpeed, float& slip) const {
   const float stall = plant_.stallForce;
-  const float a = duty * stall;                  // motor force at zero wheel speed
-  const float b = stall / plant_.freeSpeed;      // force lost per m/s of wheel speed
+  const float a = duty * stall;
+  const float b = stall / plant_.freeSpeed;
   const float muN = plant_.friction * normalForce;
   const float ref = mlite::fmax(mlite::fabs(groundSpeed), sim::kRefSpeed);
   const float limit = (plant_.freeSpeed + mlite::fabs(groundSpeed)) * 3.0f;
@@ -150,8 +141,8 @@ float World::wheelForce(float duty, float surfaceSpeed, float groundSpeed, float
   for (int it = 0; it < 6; ++it) {
     const float z = (w - groundSpeed) / (sim::kSlipScale * ref);
     const float t = tanhApprox(z);
-    const float f = a - b * w - muN * t;                                  // motor force minus tyre force
-    const float df = -b - muN * (1.0f - t * t) / (sim::kSlipScale * ref); // always negative
+    const float f = a - b * w - muN * t;
+    const float df = -b - muN * (1.0f - t * t) / (sim::kSlipScale * ref);
     w -= f / df;
     w = mlite::clamp(w, -limit, limit);
   }
@@ -166,20 +157,17 @@ void World::actuate(float leftMps, float rightMps, float dt) {
 
   const float mass = plant_.mass;
   const float g = sim::kGravity;
-  const float normal = 0.5f * mass * g;  // weight shared equally by the two drive wheels
+  const float normal = 0.5f * mass * g;
   const float half = 0.5f * config::kWheelBase;
 
-  // Motor duty: the firmware's m/s command as a fraction of free speed, times motor effectiveness.
   const float dutyL = mlite::clamp(leftMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.leftGain;
   const float dutyR = mlite::clamp(rightMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.rightGain;
 
-  // Ground speed under each contact patch. Yaw makes the two wheels move at different speeds.
   const float uL = vx_ - om_ * half;
   const float uR = vx_ + om_ * half;
   fxL_ = wheelForce(dutyL, wL_, uL, normal, wL_, slipL_);
   fxR_ = wheelForce(dutyR, wR_, uR, normal, wR_, slipR_);
 
-  // Sideways: the tyre's slip angle makes a side force, limited by the friction circle.
   const float refV = mlite::fmax(mlite::fabs(vx_), sim::kRefSpeed);
   const float fyDes = -plant_.cornerStiffness * (vy_ / refV);
   const float muN = plant_.friction * normal;
@@ -188,14 +176,12 @@ void World::actuate(float leftMps, float rightMps, float dt) {
   const float fyL = mlite::clamp(fyDes, -fyLim, fyLim);
   const float fyR = mlite::clamp(fyDes, -fyLimR, fyLimR);
 
-  // Rolling resistance opposes forward motion.
   const float fRoll = plant_.rollingResistance * mass * g * tanhApprox(vx_ / sim::kRollingSpeed);
 
-  // Rigid body. The wheels' own inertia adds a little effective mass.
   const float mEff = mass + 2.0f * sim::kWheelInertia / (plant_.wheelRadius * plant_.wheelRadius);
   const float fxTot = fxL_ + fxR_ - fRoll;
   const float fyTot = fyL + fyR;
-  const float torque = half * (fxR_ - fxL_);  // only the longitudinal forces make a yaw torque
+  const float torque = half * (fxR_ - fxL_);
   const float ax = fxTot / mEff + vy_ * om_;
   const float ay = fyTot / mEff - vx_ * om_;
   const float alphaZ = torque / plant_.yawInertia;
@@ -207,7 +193,6 @@ void World::actuate(float leftMps, float rightMps, float dt) {
   x_ += (vx_ * mlite::cos(th_) - vy_ * mlite::sin(th_)) * dt;
   y_ += (vx_ * mlite::sin(th_) + vy_ * mlite::cos(th_)) * dt;
 
-  // Ground truth: how far the robot really is from the line (+ve: line is left of robot).
   robotIdx_ = nearest(x_, y_, robotIdx_);
   const CentrePoint& p = centre_[robotIdx_];
   const float dx = x_ - p.x;
@@ -253,7 +238,7 @@ void World::judge(RunStatus controllerStatus, float dt) {
 void World::tick() {
   const float dt = config::kControlPeriod;
   sense();
-  ctrl_.setWheelEncoders(wL_, wR_);  // encoders read the wheels' rolling speed, slip included
+  ctrl_.setWheelEncoders(wL_, wR_);
   const Command cmd = ctrl_.update(sensors_, dt, sensors_ + config::kSensorCount);
   actuate(cmd.left, cmd.right, dt);
   judge(cmd.status, dt);
