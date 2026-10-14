@@ -130,12 +130,12 @@ pres.addSection({ title: "Driving" });
   const s = content("Four ways to drive a map", "From simple to smart", "Driving",
     "Normal PID only looks at the sensors. Full map blind trusts the map completely and drifts. Full map plus IR uses the map and the sensors together and is the fastest. Double IR needs no map. It measures how tight the curve is and slows down or speeds up.");
   const m = [
-    ["Normal PID", "Looks only at the sensors and steers back toward the line. It has no map so it cannot slow down before a corner."],
-    ["Full map blind", "Knows the whole map and replays the racing plan. It ignores the sensors so small errors grow until it leaves the line."],
-    ["Full map plus IR", "Replays the racing plan and uses the sensors to fix drift. This is our fastest and most reliable mode."],
-    ["Double IR", "Uses two sensor rows and wheel encoders. It measures the curve it is in and sets speed from grip. No map needed."],
+    ["Normal PID", "Steers only from the five IR sensors. No map. Logic: the sensors give how far the line is from the centre. A PID steering loop turns that error into a turn rate, and the robot slows when steering effort or error grows, so it eases off before it loses the line."],
+    ["Full map blind", "Replays the racing plan open loop. Logic: the planner sets a speed for every point and the map gives the curvature, so the turn rate is speed times curvature. The robot tracks its own distance along the route. The sensors are ignored, so any drift grows until it derails."],
+    ["Full map plus IR", "Same plan as blind, plus a correction. Logic: the same feed forward, with a PID on the sensed line offset that steers the robot back. The sensors also bridge short gaps and show the finish, where the tape ends."],
+    ["Double IR", "No map needed. Logic: the front and rear rows give the line direction, and the encoders give the robot turn rate. Together they give the curvature of the bend. Speed is set to the square root of grip over curvature, capped at 0.4 m/s and rate limited like the plan."],
   ];
-  m.forEach(([h, b], i) => card(s, 0.6 + (i % 2) * 6.15, 1.8 + Math.floor(i / 2) * 2.7, 5.95, 2.5, h, b, "mode " + (i + 1), 16));
+  m.forEach(([h, b], i) => card(s, 0.6 + (i % 2) * 6.15, 1.7 + Math.floor(i / 2) * 2.75, 5.95, 2.6, h, b, "mode " + (i + 1), 14));
 }
 
 // 7 The racing plan (chart)
