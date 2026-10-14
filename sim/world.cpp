@@ -1,6 +1,21 @@
 #include "world.h"
 #include "mathlite.h"
 
+namespace {
+
+// tanh by a continued-fraction (Lambert) form, accurate to about 1e-6 for |z| < 5.
+// The simulator needs it for the tyre curves; the firmware never does.
+float tanhApprox(float z) {
+  if (z > 4.97f) return 1.0f;
+  if (z < -4.97f) return -1.0f;
+  const float z2 = z * z;
+  const float num = z * (135135.0f + z2 * (17325.0f + z2 * (378.0f + z2)));
+  const float den = 135135.0f + z2 * (62370.0f + z2 * (3150.0f + z2 * 28.0f));
+  return num / den;
+}
+
+}  // namespace
+
 bool World::start(uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams& plant, uint32_t seed) {
   const MapInfo& map = mapInfo(mapIndex);
   track_.init(map.segments, map.count);
@@ -15,8 +30,15 @@ bool World::start(uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams
   x_ = plant.startX;
   y_ = plant.startY;
   th_ = plant.startHeading;
-  wl_ = 0.0f;
-  wr_ = 0.0f;
+  vx_ = 0.0f;
+  vy_ = 0.0f;
+  om_ = 0.0f;
+  wL_ = 0.0f;
+  wR_ = 0.0f;
+  slipL_ = 0.0f;
+  slipR_ = 0.0f;
+  fxL_ = 0.0f;
+  fxR_ = 0.0f;
   cmdLeft_ = 0.0f;
   cmdRight_ = 0.0f;
   robotIdx_ = 0;
@@ -106,21 +128,79 @@ void World::sense() {
   }
 }
 
+// One drive wheel. The motor pushes with a force that falls as the wheel speeds up (back-EMF),
+// and the tyre pushes back through a slip-ratio curve capped at friction x normal force.
+// The wheel has very little inertia, so its speed is the one where motor and tyre forces balance.
+// That is found with a few Newton steps. Returns the longitudinal tyre force.
+float World::wheelForce(float duty, float surfaceSpeed, float groundSpeed, float normalForce,
+                        float& wheelSpeed, float& slip) const {
+  const float stall = plant_.stallForce;
+  const float a = duty * stall;                  // motor force at zero wheel speed
+  const float b = stall / plant_.freeSpeed;      // force lost per m/s of wheel speed
+  const float muN = plant_.friction * normalForce;
+  const float ref = mlite::fmax(mlite::fabs(groundSpeed), sim::kRefSpeed);
+  const float limit = (plant_.freeSpeed + mlite::fabs(groundSpeed)) * 3.0f;
+
+  float w = surfaceSpeed;
+  for (int it = 0; it < 6; ++it) {
+    const float z = (w - groundSpeed) / (sim::kSlipScale * ref);
+    const float t = tanhApprox(z);
+    const float f = a - b * w - muN * t;                                  // motor force minus tyre force
+    const float df = -b - muN * (1.0f - t * t) / (sim::kSlipScale * ref); // always negative
+    w -= f / df;
+    w = mlite::clamp(w, -limit, limit);
+  }
+  wheelSpeed = w;
+  slip = (w - groundSpeed) / ref;
+  return mlite::clamp(a - b * w, -muN, muN);
+}
+
 void World::actuate(float leftMps, float rightMps, float dt) {
   cmdLeft_ = leftMps;
   cmdRight_ = rightMps;
 
-  // The real motors lag, mismatch and slip.
-  const float a = mlite::clamp(dt / sim::kMotorTau, 0.0f, 1.0f);
-  const float slip = plant_.wheelNoise * mlite::sqrt(dt);
-  wl_ += (leftMps * plant_.leftGain - wl_) * a + slip * gauss();
-  wr_ += (rightMps * plant_.rightGain - wr_) * a + slip * gauss();
+  const float mass = plant_.mass;
+  const float g = sim::kGravity;
+  const float normal = 0.5f * mass * g;  // weight shared equally by the two drive wheels
+  const float half = 0.5f * config::kWheelBase;
 
-  const float v = 0.5f * (wl_ + wr_);
-  const float w = (wr_ - wl_) / config::kWheelBase;
-  th_ += w * dt;
-  x_ += v * mlite::cos(th_) * dt;
-  y_ += v * mlite::sin(th_) * dt;
+  // Motor duty: the firmware's m/s command as a fraction of free speed, times motor effectiveness.
+  const float dutyL = mlite::clamp(leftMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.leftGain;
+  const float dutyR = mlite::clamp(rightMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.rightGain;
+
+  // Ground speed under each contact patch. Yaw makes the two wheels move at different speeds.
+  const float uL = vx_ - om_ * half;
+  const float uR = vx_ + om_ * half;
+  fxL_ = wheelForce(dutyL, wL_, uL, normal, wL_, slipL_);
+  fxR_ = wheelForce(dutyR, wR_, uR, normal, wR_, slipR_);
+
+  // Sideways: the tyre's slip angle makes a side force, limited by the friction circle.
+  const float refV = mlite::fmax(mlite::fabs(vx_), sim::kRefSpeed);
+  const float fyDes = -plant_.cornerStiffness * (vy_ / refV);
+  const float muN = plant_.friction * normal;
+  const float fyLim = mlite::sqrt(mlite::fmax(0.0f, muN * muN - fxL_ * fxL_));
+  const float fyLimR = mlite::sqrt(mlite::fmax(0.0f, muN * muN - fxR_ * fxR_));
+  const float fyL = mlite::clamp(fyDes, -fyLim, fyLim);
+  const float fyR = mlite::clamp(fyDes, -fyLimR, fyLimR);
+
+  // Rolling resistance opposes forward motion.
+  const float fRoll = plant_.rollingResistance * mass * g * tanhApprox(vx_ / sim::kRollingSpeed);
+
+  // Rigid body. The wheels' own inertia adds a little effective mass.
+  const float mEff = mass + 2.0f * sim::kWheelInertia / (plant_.wheelRadius * plant_.wheelRadius);
+  const float fxTot = fxL_ + fxR_ - fRoll;
+  const float fyTot = fyL + fyR;
+  const float torque = half * (fxR_ - fxL_);  // only the longitudinal forces make a yaw torque
+  const float ax = fxTot / mEff + vy_ * om_;
+  const float ay = fyTot / mEff - vx_ * om_;
+  const float alphaZ = torque / plant_.yawInertia;
+
+  vx_ += ax * dt;
+  vy_ += ay * dt;
+  om_ += alphaZ * dt;
+  th_ += om_ * dt;
+  x_ += (vx_ * mlite::cos(th_) - vy_ * mlite::sin(th_)) * dt;
+  y_ += (vx_ * mlite::sin(th_) + vy_ * mlite::cos(th_)) * dt;
 
   // Ground truth: how far the robot really is from the line (+ve: line is left of robot).
   robotIdx_ = nearest(x_, y_, robotIdx_);
@@ -137,8 +217,13 @@ void World::placeRobot(float x, float y, float heading) {
   x_ = x;
   y_ = y;
   th_ = heading;
-  wl_ = 0.0f;
-  wr_ = 0.0f;
+  vx_ = 0.0f;
+  vy_ = 0.0f;
+  om_ = 0.0f;
+  wL_ = 0.0f;
+  wR_ = 0.0f;
+  slipL_ = 0.0f;
+  slipR_ = 0.0f;
   robotIdx_ = 0;
   sense();
 }

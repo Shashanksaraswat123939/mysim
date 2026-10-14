@@ -44,19 +44,33 @@ __attribute__((export_name("geometry"))) float geometry(int which) {
 __attribute__((export_name("outcome_name"))) const char* outcome_name(int i) { return outcomeName((Outcome)i); }
 __attribute__((export_name("outcome_short"))) const char* outcome_short(int i) { return outcomeShort((Outcome)i); }
 
-// The imperfect robot the simulator uses, field by field (see PlantParams in sim/world.h).
+// The physical robot the simulator uses, field by field (see PlantParams in sim/world.h).
 __attribute__((export_name("plant_value"))) float plant_value(int which) {
   switch (which) {
-    case 0: return kRealRobot.leftGain;
-    case 1: return kRealRobot.rightGain;
-    case 2: return kRealRobot.wheelNoise;
-    case 3: return kRealRobot.sensorNoise;
-    case 4: return kRealRobot.startX;
-    case 5: return kRealRobot.startY;
-    case 6: return kRealRobot.startHeading;
+    case 0: return kRealRobot.mass;
+    case 1: return kRealRobot.friction;
+    case 2: return kRealRobot.rollingResistance;
+    case 3: return kRealRobot.stallForce;
+    case 4: return kRealRobot.freeSpeed;
+    case 5: return kRealRobot.cornerStiffness;
+    case 6: return kRealRobot.leftGain;
+    case 7: return kRealRobot.rightGain;
+    case 8: return kRealRobot.sensorNoise;
+    case 9: return kRealRobot.startX;
+    case 10: return kRealRobot.startY;
+    case 11: return kRealRobot.startHeading;
+    case 12: return kRealRobot.yawInertia;
   }
   return 0.0f;
 }
+
+// Physical state of the robot in the run, for the page's readouts.
+__attribute__((export_name("run_wheel_actual_left"))) float run_wheel_actual_left() { return g_world.actualWheelLeft(); }
+__attribute__((export_name("run_wheel_actual_right"))) float run_wheel_actual_right() { return g_world.actualWheelRight(); }
+__attribute__((export_name("run_slip_left"))) float run_slip_left() { return g_world.slipLeft(); }
+__attribute__((export_name("run_slip_right"))) float run_slip_right() { return g_world.slipRight(); }
+__attribute__((export_name("run_body_speed"))) float run_body_speed() { return g_world.bodySpeed(); }
+__attribute__((export_name("run_slide_speed"))) float run_slide_speed() { return g_world.slideSpeed(); }
 
 __attribute__((export_name("run_start"))) int run_start(int map, int mode, float pidSpeed) {
   return g_world.start((uint8_t)map, modeFrom(mode), pidSpeed) ? 1 : 0;

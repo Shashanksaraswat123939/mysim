@@ -23,30 +23,33 @@ works out the fastest speed at every point of the route, limited by grip
 
 Lap times in seconds from the start to the finish. `plan` is the ideal lap for the racing profile.
 "derailed" means the robot drifted out of sensor reach. These numbers come from
-`build/test_core` and `scripts/build.sh`, with the default seed and the simulated real robot.
+`build/test_core` and `scripts/build.sh`, with the default seed and the simulated real robot. The
+simulated robot is a physics model (mass, friction, rolling loss, motor stall force, tyre slide); see
+`docs/PROJECT.md` section 6.1.
 
 | Map | plan | Normal PID (0.25 m/s) | Full map (blind) | Full map + IR |
 |---|---|---|---|---|
-| Warm-Up Oval | 6.06 | 21.78 | derailed | 6.04 |
-| Chicane | 3.74 | 11.25 | derailed | 3.71 |
-| Hairpin Alley | 5.18 | 15.29 | derailed | 5.06 |
-| Dashed Line | 3.57 | 12.41 | derailed | 3.59 |
-| Zig-Zag | 3.99 | 10.21 | derailed | 3.90 |
-| Sweepers | 5.58 | 22.49 | derailed | 5.59 |
+| Warm-Up Oval | 6.06 | 23.30 | derailed | 7.20 |
+| Chicane | 3.74 | 12.08 | derailed | 4.28 |
+| Hairpin Alley | 5.18 | 16.27 | derailed | 5.46 |
+| Dashed Line | 3.57 | 13.32 | derailed | 4.30 |
+| Zig-Zag | 3.99 | 10.94 | derailed | 4.17 |
+| Sweepers | 5.58 | 24.08 | derailed | 6.68 |
 
 Robustness, from the tests (`tests/test_core.cpp`):
 
-- Full map + IR finishes every map on the default run and on 8 other sensor-noise seeds,
-  and across a 40-seed sweep of each map (0 failures in 240 runs).
-- Normal PID completes every map on the default run and at every slider speed from 0.20 to 0.90 m/s.
-  Across 40 seeded noise runs per map (240 per speed), it finishes 238–240 at each speed. It needs
-  two things Normal PID is allowed to have: its steering gains scale up with its base speed, and it
-  slows down as its steering effort and line offset grow (`kPidGain*`, `kPidSlowdown*` and
-  `kPidOffsetSlowdownHigh` in `config.h`). Below 0.20 m/s it drops off on some maps.
-- Full map (blind) finishes 4 of 240 seeded runs (`build/site/results.json`, from the C++ build), and none on the default run. It fails because of the robot's imperfections, not because of its logic: with a
-  perfect plant (`kIdealRobot` in `sim/world.h`) it completes all six maps. The simulated real
-  robot has a 0.6% weaker right motor, wheel slip, sensor noise and a start placed 3 cm off the line.
-  Blind has no way to correct any of that. The page shows these values in the "Robot physics" panel.
+- Full map + IR finishes every map on the default run, and 239 of 240 seeded runs (40 noise seeds per map).
+  Its gains were retuned when the physics model changed, so the earlier figure of 0 failures no longer applies.
+- Normal PID completes every map on the default run, and 240 of 240 seeded runs (40 per map) at the default
+  speed. Its steering gains scale up with its base speed, and it slows down as its steering effort and line
+  offset grow (`kPidGain*`, `kPidSlowdown*` and `kPidOffsetSlowdownHigh` in `config.h`). Re-checked on the
+  physics model: 240 of 240 seeded runs at every slider speed from 0.20 to 0.90 m/s.
+- Full map (blind) finishes 0 of 240 seeded runs and none on the default run (`build/site/results.json`,
+  from the C++ build). It fails because of the robot's imperfections, not its logic: with a perfect plant
+  (`kIdealRobot` in `sim/world.h`) it completes all six maps. The real robot's motors have no speed
+  feedback, so they deliver a few percent less speed than commanded (about 6% at 0.25 m/s), and its
+  dead-reckoned position falls behind. Blind has no way to correct any of that. The page shows these
+  values in the "Robot physics" panel.
 
 ## Documentation
 
@@ -111,8 +114,8 @@ simulated robot (a hardware-in-the-loop check), and then rebuilds `web/line_foll
 
 ## Limits and assumptions
 
-- The page's simulator is a model, not a measurement of a real robot. Its physics
-  (motor lag, drift, slip, noise, sensor reach) are chosen to be plausible, and the results
+- The page's simulator is a physics model, not a measurement of a real robot. Its values (mass, friction,
+  rolling loss, motor stall force, tyre stiffness, sensor noise) are chosen to be plausible, and the results
   depend on those choices. They are in `PlantParams` in `sim/world.h`. The controllers are never told them.
 - I could not compile the sketch with the real AVR toolchain here (no `avr-gcc` or
   `arduino-cli`). It is checked by compiling against a mock Arduino API and running it in the

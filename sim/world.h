@@ -19,26 +19,43 @@ constexpr float kDerailTime = 0.25f;      // seconds beyond that before the robo
 constexpr float kFinishSlack = 0.04f;     // within this of the end counts as finished
 constexpr float kRunLimit = 40.0f;        // seconds before a run times out
 constexpr float kTrailInterval = 0.02f;
-constexpr float kMotorTau = 0.04f;        // motor response lag, seconds
+
+// Physical constants of the plant model.
+constexpr float kGravity = 9.81f;         // m/s^2
+constexpr float kWheelInertia = 4e-6f;    // kg m^2 per wheel (about a 20 g wheel of 2 cm radius)
+constexpr float kSlipScale = 0.2f;        // slip ratio at which a tyre reaches about 76% of its grip
+constexpr float kRefSpeed = 0.2f;         // m/s; keeps slip ratio and slip angle finite near standstill
+constexpr float kRollingSpeed = 0.02f;    // m/s; rolling resistance switches sign over this speed
 }  // namespace sim
 
-// How the simulated robot differs from the firmware's beliefs about it. The
-// controllers are never told any of these values.
+// The physical robot. The controllers are never told any of these values. Every value
+// is an assumption: none was measured on a real robot (see docs/PROJECT.md, section 13).
 struct PlantParams {
-  float leftGain;      // left motor delivers this fraction of its command
-  float rightGain;     // right motor delivers this fraction of its command
-  float wheelNoise;    // m/s per sqrt(s) of random wheel slip
-  float sensorNoise;   // reflectance noise, 1 sigma
-  float startX;        // start placed slightly off the line, as by hand
+  float mass;               // kg, whole robot
+  float yawInertia;         // kg m^2 about the vertical axis
+  float wheelRadius;        // m
+  float friction;           // tyre-to-tape friction coefficient, mu
+  float rollingResistance;  // c_rr: rolling force = c_rr * mass * g
+  float stallForce;         // N each motor gives at standstill, full duty
+  float freeSpeed;          // m/s, wheel surface speed at full duty with no load
+  float cornerStiffness;    // N per radian of tyre slip angle, per wheel
+  float leftGain;           // left motor effectiveness (multiplies its duty)
+  float rightGain;          // right motor effectiveness
+  float sensorNoise;        // reflectance noise, 1 sigma
+  float startX;             // start placed slightly off the line, as by hand
   float startY;
   float startHeading;
 };
 
-// The imperfect robot used by default: a 0.6% weaker right motor, slip, sensor
-// noise and a hand-placed start that is a little off the line.
-constexpr PlantParams kRealRobot = {1.000f, 0.994f, 0.03f, 0.04f, -0.03f, 0.008f, 0.03f};
-// Perfect hardware, for checking the controllers on their own.
-constexpr PlantParams kIdealRobot = {1.000f, 1.000f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+// The physical robot used by default: a 0.3 kg robot on a tape or mat surface (mu 0.6),
+// a motor 0.6% weaker on the right, sensor noise and a hand-placed start.
+constexpr PlantParams kRealRobot = {
+    0.30f,  5e-4f, 0.02f, 0.6f, 0.03f, 4.0f, 1.20f, 8.0f,
+    1.000f, 0.994f, 0.04f, -0.03f, 0.008f, 0.03f};
+// Perfect grip and no rolling loss, for checking the controllers on their own.
+constexpr PlantParams kIdealRobot = {
+    0.30f,  5e-4f, 0.02f, 1000.0f, 0.0f, 4.0f, 1.20f, 8.0f,
+    1.0f,   1.0f,  0.0f,  0.0f,    0.0f, 0.0f};
 
 struct CentrePoint {
   float x, y, heading, curvature, s;
@@ -80,8 +97,14 @@ class World {
   float estimatedOffset() const { return ctrl_.lineOffset(); }
   float estimatedProgress() const { return ctrl_.progress(); }
   bool lineSeen() const { return ctrl_.lineSeen(); }
-  float wheelLeft() const { return cmdLeft_; }
+  float wheelLeft() const { return cmdLeft_; }    // commanded by the firmware, m/s
   float wheelRight() const { return cmdRight_; }
+  float actualWheelLeft() const { return wL_; }   // wheel surface speed, m/s
+  float actualWheelRight() const { return wR_; }
+  float slipLeft() const { return slipL_; }       // slip ratio: 0 = rolling, 1 = fully spinning
+  float slipRight() const { return slipR_; }
+  float bodySpeed() const { return vx_; }         // forward speed of the robot, m/s
+  float slideSpeed() const { return vy_; }        // sideways speed of the axle, m/s
   float poseX() const { return x_; }
   float poseY() const { return y_; }
   float poseHeading() const { return th_; }
@@ -105,6 +128,8 @@ class World {
   float uniform();
   float gauss();
   void recordTrail();
+  float wheelForce(float duty, float surfaceSpeed, float groundSpeed, float normalForce,
+                   float& wheelSpeed, float& slip) const;
 
   Track track_;
   RacingPlan plan_;
@@ -114,7 +139,10 @@ class World {
   uint16_t centreCount_;
 
   float x_, y_, th_;          // true pose
-  float wl_, wr_;             // actual wheel speeds
+  float vx_, vy_, om_;        // body velocities: forward, sideways, yaw rate
+  float wL_, wR_;             // wheel surface speeds
+  float slipL_, slipR_;       // slip ratios
+  float fxL_, fxR_;           // longitudinal tyre forces
   float cmdLeft_, cmdRight_;  // last command from the controller
   float sensors_[config::kSensorCount];
   float sensorX_[config::kSensorCount];

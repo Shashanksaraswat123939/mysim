@@ -182,7 +182,10 @@
         <dt>Line offset, true (+ = line left of robot)</dt><dd id="trueOff">0.0 mm</dd>
         <dt>Line offset, IR sensors</dt><dd id="estOff">—</dd>
         <dt>Line under sensor bar</dt><dd id="seen">—</dd>
-        <dt>Wheel speed L / R</dt><dd id="wheels">0.00 / 0.00 m/s</dd>
+        <dt>Commanded wheel speed L / R</dt><dd id="wheels">0.00 / 0.00 m/s</dd>
+        <dt>Actual wheel speed L / R</dt><dd id="wheelsActual">0.00 / 0.00 m/s</dd>
+        <dt>Wheel slip L / R</dt><dd id="slip">0% / 0%</dd>
+        <dt>Sideways slide</dt><dd id="slide">0.0 mm/s</dd>
       </dl>
     </section>
 
@@ -320,12 +323,17 @@ function setup() {
 
   // Robot physics: values from the C++ PlantParams, labels here.
   const plantRows = [
-    ["Left motor gain", ex.plant_value(0).toFixed(3)],
-    ["Right motor gain", ex.plant_value(1).toFixed(3)],
-    ["Wheel slip (m/s per √s)", ex.plant_value(2).toFixed(3)],
-    ["Sensor noise (1σ)", ex.plant_value(3).toFixed(3)],
-    ["Start placed (x, y) m", ex.plant_value(4).toFixed(3) + ", " + ex.plant_value(5).toFixed(3)],
-    ["Start heading (rad)", ex.plant_value(6).toFixed(3)],
+    ["Robot mass (kg)", ex.plant_value(0).toFixed(2)],
+    ["Tyre friction μ", ex.plant_value(1).toFixed(2)],
+    ["Rolling resistance c_rr", ex.plant_value(2).toFixed(3)],
+    ["Motor stall force per wheel (N)", ex.plant_value(3).toFixed(1)],
+    ["Motor free speed (m/s)", ex.plant_value(4).toFixed(2)],
+    ["Tyre cornering stiffness (N/rad)", ex.plant_value(5).toFixed(1)],
+    ["Yaw inertia (kg m²)", ex.plant_value(12).toExponential(1)],
+    ["Left / right motor effectiveness", ex.plant_value(6).toFixed(3) + " / " + ex.plant_value(7).toFixed(3)],
+    ["Sensor noise (1σ)", ex.plant_value(8).toFixed(3)],
+    ["Start placed (x, y) m", ex.plant_value(9).toFixed(3) + ", " + ex.plant_value(10).toFixed(3)],
+    ["Start heading (rad)", ex.plant_value(11).toFixed(3)],
     ["Wheelbase (m)", ex.geometry(0).toFixed(3)],
     ["Sensors × spacing (m)", ex.geometry(4).toFixed(0) + " × " + ex.geometry(2).toFixed(3)],
   ];
@@ -579,6 +587,9 @@ function updateStatus() {
   $("estOff").textContent = ex.run_line_seen() ? (ex.run_estimated_offset() * 1000).toFixed(1) + " mm" : "no line";
   $("seen").textContent = ex.run_line_seen() ? "yes" : "no";
   $("wheels").textContent = ex.run_wheel_left().toFixed(2) + " / " + ex.run_wheel_right().toFixed(2) + " m/s";
+  $("wheelsActual").textContent = ex.run_wheel_actual_left().toFixed(2) + " / " + ex.run_wheel_actual_right().toFixed(2) + " m/s";
+  $("slip").textContent = (Math.round(ex.run_slip_left() * 100) || 0) + "% / " + (Math.round(ex.run_slip_right() * 100) || 0) + "%";
+  $("slide").textContent = (ex.run_slide_speed() * 1000).toFixed(1) + " mm/s";
   if (outcome === 1) $("lap").textContent = ex.run_lap_time().toFixed(2) + " s";
 
   const status = $("status");

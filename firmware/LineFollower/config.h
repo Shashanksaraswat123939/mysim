@@ -41,9 +41,9 @@ constexpr float kPidKdHigh = 14.0f;
 constexpr float kPidSlowdownLow = 0.5f;
 constexpr float kPidSlowdownHigh = 1.0f;
 constexpr float kPidOffsetSlowdownHigh = 80.0f;  // per metre of offset, at the high-speed set
-constexpr float kKp = 80.0f;              // rad/s of steering per metre of line offset
+constexpr float kKp = 160.0f;             // rad/s of steering per metre of line offset (Full map + IR)
 constexpr float kKi = 2.0f;
-constexpr float kKd = 8.0f;
+constexpr float kKd = 14.0f;
 constexpr float kIntegralLimit = 1.0f;    // rad/s, anti-windup clamp on the I term
 constexpr float kDerivativeTau = 0.03f;   // s, smoothing on the D term so sensor noise is not amplified
 

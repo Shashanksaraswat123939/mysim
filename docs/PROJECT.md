@@ -306,7 +306,9 @@ v = plan.speedAt(s)
 ω = v · κ(s) + Kp·e + Ki·∫e dt + Kd·de/dt      (PID only when the line is seen)
 ```
 
-with `Kp = 80`, `Ki = 2`, `Kd = 8`, the same gains as the low-speed Normal PID set.
+with `Kp = 160`, `Ki = 2`, `Kd = 14`. These were retuned when the physics model changed: the motors'
+speed loss means the dead-reckoned position falls behind the real one, so the sensors have to correct
+more. Normal PID has its own gain schedule (section 5.1).
 
 **Gaps.** When the line is unseen, the PID term is switched off and the feed-forward carries the
 robot across the gap. The derivative memory is cleared, so the derivative does not spike when the line
@@ -329,26 +331,53 @@ adds is a model of the physical robot and of the world.
 
 ### 6.1 The plant: `World::actuate()`
 
-The "real" robot is `PlantParams kRealRobot`:
+The "real" robot is `PlantParams kRealRobot`. It is a physics model: the forces on the robot are computed
+each 2 ms tick, and the robot's motion comes from those forces.
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| `leftGain` | 1.000 | Left motor delivers 100% of its command. |
-| `rightGain` | 0.994 | Right motor delivers 99.4%, a steady drift. |
-| `wheelNoise` | 0.03 m/s per √s | Random wheel slip, scaled to the time step. |
+| `mass` | 0.30 kg | Whole robot. Sets the weight, and so the grip. |
+| `yawInertia` | 5e-4 kg m² | Resistance to turning on the spot. |
+| `wheelRadius` | 0.02 m | Sets the wheel's speed in metres per second. |
+| `friction` | μ = 0.6 | Tyre-to-tape friction coefficient. |
+| `rollingResistance` | c_rr = 0.03 | Rolling loss, a force of c_rr·m·g. |
+| `stallForce` | 4 N per wheel | What a motor can push with at standstill, at full duty. |
+| `freeSpeed` | 1.20 m/s | Wheel speed with no load at full duty. |
+| `cornerStiffness` | 8 N/rad per wheel | How strongly a tyre resists sliding sideways. |
+| `leftGain`, `rightGain` | 1.000, 0.994 | Motor effectiveness. The right is 0.6% weaker. |
 | `sensorNoise` | 0.04 | Standard deviation of sensor noise, on a 0 to 1 scale. |
 | `start` | (−0.03, 0.008) m, 0.03 rad | Placed slightly off the line, as by hand. |
 
-Each control tick the wheel speeds move towards the commanded speeds with a first-order lag:
+**Gravity and the weight on each wheel.** Each drive wheel carries half the weight, `N = m·g/2`, with
+`g = 9.81 m/s²`. The friction limit per wheel is `μ·N`. Gravity therefore sets the grip, and it also sets
+the rolling resistance `c_rr·m·g`.
+
+**The motor.** Each motor pushes with a force that falls as the wheel speeds up, because of back-EMF:
+`F_motor = duty·F_stall − (F_stall / v_free)·v_wheel`. There is no speed feedback, as on the real firmware
+(which only sends a PWM duty), so the robot slows under load.
+
+**The tyre.** The tyre's longitudinal force depends on slip ratio, `s = (v_wheel − v_ground) / v_ref`, through
+`F_tyre = μ·N·tanh(s / 0.2)`. The tanh curve rises steeply for small slip and levels off at the friction
+limit. The wheel's own inertia is very small compared with the robot, so its speed is the one where the motor
+force and the tyre force balance. That is solved with a few Newton steps per wheel.
+
+**Sideways.** Each tyre has a slip angle, `α = v_side / v_forward`, and makes a side force `−C_α·α`. That force
+is capped by the friction circle: the side force cannot exceed the friction left after the forward force.
+When the robot corners too fast, the sideways force saturates and the robot slides.
+
+**The body.** Forces and yaw torque give the accelerations:
 
 ```
-wheel += (command · gain − wheel) · (dt / τ) + noise
+m·(v̇_x − v_y·ω)  = F_xL + F_xR − F_rolling
+m·(v̇_y + v_x·ω)  = F_yL + F_yR
+I_z·ω̇           = (W/2)·(F_xR − F_xL)
 ```
 
-with `τ = 0.04 s`. Then the pose is integrated from the actual wheel speeds using the differential-drive
-equations from section 3, with the heading updated first so the motion follows the new heading.
+Integrated with the 2 ms tick, then the pose is moved by the body velocities.
 
-The controller is never told any of these values.
+The controller is never told any of these values. The motion is still computed from the commands, so the
+firmware's open-loop speed assumption is wrong on purpose: at 0.25 m/s, the simulated robot runs about 6%
+slow, and the sim's robot slips and slides in ways the controller cannot see.
 
 ### 6.2 The sensors: `World::sense()`
 
@@ -572,10 +601,15 @@ the real world.
 
 | Item | Value in the project | Where | How it could differ on real hardware |
 |---|---|---|---|
-| Right motor strength | 0.994 of the left | `sim/world.h` | Real mismatch changes with battery, load and temperature. |
-| Motor response | First-order lag, 0.04 s | `sim/world.h` | Real motors have deadband, nonlinear speed-to-PWM curves and current limits. |
-| Top wheel speed | 1.20 m/s at full PWM | `config.h` | A guess; the real top speed may be lower. |
-| Wheel slip | Random walk, 0.03 m/s per √s | `sim/world.h` | Real slip is mostly sideways on arcs, which is not modelled. |
+| Robot mass | 0.30 kg | `sim/world.h` | Set by estimate. Weight sets the grip and the rolling loss, so a different mass changes the slip and the slide. |
+| Tyre friction μ | 0.6 | `sim/world.h` | A plausible value for rubber on a mat. Real tape and tyres vary widely, and this decides when the wheels spin and the robot slides. |
+| Rolling resistance | c_rr = 0.03 | `sim/world.h` | Typical for small wheels. Depends on the floor and the wheel. |
+| Motor stall force | 4 N per wheel | `sim/world.h` | Chosen so the motors can spin the wheels on hard starts. Not measured. Real gearmotors have a torque curve, not a straight line. |
+| Motor free speed | 1.20 m/s at full duty | `sim/world.h` | Matches the firmware's assumed top speed, so the firmware's PWM-to-speed belief is exact at no load. A real motor's free speed will differ. |
+| Tyre cornering stiffness | 8 N/rad per wheel | `sim/world.h` | Guessed. It sets how far the robot slides on a corner. |
+| Motor right gain | 0.994 of the left | `sim/world.h` | Real mismatch changes with battery, load and temperature. |
+| Battery | Not modelled | — | A real battery sags under load, which slows the motors further. |
+| Wheel inertia, slip scale, speed floor | 4e-6 kg m²; slip scale 0.2; floor 0.2 m/s | `sim/world.h` | Numerical and modelling choices. The floor keeps the model stable near standstill. |
 | Noise distribution | Sum of four uniform values | `sim/world.cpp` | Real noise has heavier tails, so rare bad readings are under-represented. |
 | Sensor response | Full reading over the tape, falling off over 6 mm | `sim/world.cpp` | Real reflectance is blurred and nonlinear, and varies between sensors. |
 | Sensor layout | 5 sensors, 12 mm apart, 40 mm ahead | `config.h` | Not measured on hardware. The ±2.4 cm reach drives the controller design. |
@@ -598,8 +632,9 @@ the real world.
 
 The key risks, in order:
 
-1. **Motor mismatch and start error** decide the blind result. A different real mismatch could change it
-   completely.
+1. **Motor mismatch, the speed loss and the start error** decide the blind result. A different real mismatch
+   could change it completely. The physics values (friction, stall force, rolling loss, cornering stiffness)
+   decide how much the wheels slip and the robot slides, and none has been measured.
 2. **Sensor response** decides how well any sensor-based controller can work. Measure it first.
 3. **Gains** were tuned on this model, so they should be retuned on the robot before the numbers mean anything.
 4. **The planner's grip limit** is a guess that the plan depends on; a real floor may allow more or less.
