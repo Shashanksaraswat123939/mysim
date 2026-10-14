@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Line Follower Simulator</title>
+<style>
+  /* Black, white and gray only. No colour, no gradients, no effects. */
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --ink: #111111;
+    --muted: #6b6b6b;
+    --line: #d9d9d9;
+    --soft: #f3f3f3;
+    --canvas: #efefef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header { padding: 18px 24px 0; max-width: 1320px; margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 14px 24px 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+    #stageWrap { height: auto; }
+  }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+  .panel h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  #stage { padding: 0; overflow: hidden; }
+  .stagebar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .stagebar label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  .stagebar .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #stageWrap { position: relative; height: calc(100vh - 190px); min-height: 460px; }
+  canvas#view { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--canvas); cursor: grab; touch-action: none; }
+  canvas#view:active { cursor: grabbing; }
+  .legend { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+  .ramp { width: 160px; height: 8px; border-radius: 1px; background: linear-gradient(90deg, #1b1b1b, #d4d4d4); border: 1px solid var(--line); }
+  .legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
+  .controls { display: flex; flex-direction: column; gap: 12px; padding: 0 0 12px; }
+  label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+  select, input[type="range"] { font: inherit; }
+  input[type="range"], input[type="radio"], input[type="checkbox"] { accent-color: #111; }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); }
+  .muted { color: var(--muted); font-size: 13px; margin: 6px 0 0; min-height: 2.6em; }
+  .modes { display: flex; flex-direction: column; gap: 6px; }
+  .mode { display: grid; grid-template-columns: 18px 1fr; gap: 1px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+  .mode input { margin: 3px 0 0; }
+  .mode strong { font-weight: 600; }
+  .mode span { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+  .mode:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; padding: 8px 14px; border-radius: 3px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--ink); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; padding: 6px 12px; font-size: 13px; }
+  .seg button:first-child { border-radius: 3px 0 0 3px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 3px 3px 0; }
+  .seg button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .status { font-size: 16px; font-weight: 600; margin: 0 0 8px; min-height: 1.4em; }
+  .status.bad { text-decoration: underline; text-underline-offset: 3px; }
+  .progress { height: 4px; background: var(--line); margin-bottom: 14px; }
+  .progress > div { height: 100%; width: 0; background: var(--ink); }
+  dl.stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-variant-numeric: tabular-nums; }
+  dl.stats dt { color: var(--muted); }
+  dl.stats dd { margin: 0; text-align: right; font-weight: 600; }
+  details { margin-top: 2px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details dl { margin: 10px 0 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+  td.num { text-align: right; }
+  td.best { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  td.fail { color: var(--muted); }
+  .compare { max-width: 1272px; margin: 16px auto 8px; padding: 14px 16px; }
+  details.panel > summary { cursor: pointer; list-style: none; }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary h2 { margin: 0; }
+  details.panel > summary h2::before { content: "+ "; }
+  details.panel[open] > summary h2::before { content: "\2212 "; }
+  footer { max-width: 1320px; margin: 0 auto; padding: 0 24px 24px; color: var(--muted); font-size: 12.5px; }
+  code { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Line Follower Simulator</h1>
+  <p id="intro">Every number here is computed by the C++ firmware in <code>firmware/LineFollower</code>, compiled to WebAssembly.</p>
+</header>
+
+<main>
+  <section class="panel" id="stage" aria-label="Simulation view">
+    <div class="stagebar">
+      <div class="seg" id="views" role="group" aria-label="Camera">
+        <button data-view="orbit" aria-pressed="true">3D</button>
+        <button data-view="top" aria-pressed="false">Top</button>
+        <button data-view="chase" aria-pressed="false">Follow</button>
+      </div>
+      <span class="hint" id="viewHint">Drag to rotate, scroll to zoom</span>
+    </div>
+    <div id="stageWrap">
+      <canvas id="view" width="960" height="720" role="img" aria-label="3D view of the robot on the map"></canvas>
+    </div>
+    <div class="legend">
+      <span>Racing speed</span>
+      <span>slow</span>
+      <div class="ramp" aria-hidden="true"></div>
+      <span id="topSpeed">fast</span>
+      <label><input type="checkbox" id="showPlan" checked> Show racing speed profile</label>
+    </div>
+  </section>
+
+  <aside class="controls">
+    <section class="panel">
+      <h2>Control mode</h2>
+      <div class="modes" id="modes" role="radiogroup" aria-label="Control mode"></div>
+      <label class="field" style="margin-top:14px" for="pidSpeed">
+        <span><span id="speedName">Speed</span>: <span id="pidValue"></span> m/s</span>
+        <input type="range" id="pidSpeed" step="0.01">
+      </label>
+    </section>
+
+    <section class="panel">
+      <h2>Run</h2>
+      <p class="status" id="status" role="status" aria-live="polite">Ready</p>
+      <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+      <div class="row">
+        <button class="primary" id="start">Start</button>
+        <button id="pause" disabled>Pause</button>
+        <button id="reset">Reset</button>
+      </div>
+      <dl class="stats" style="margin-top:12px">
+        <dt>Time</dt><dd id="time">0.00 s</dd>
+        <dt>Planned lap</dt><dd id="planLap">—</dd>
+        <dt>Actual lap</dt><dd id="lap">—</dd>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <h2>Map</h2>
+      <label class="field" for="map">Route
+        <select id="map"></select>
+      </label>
+      <p class="muted" id="mapSummary"></p>
+    </section>
+
+    <details class="panel">
+      <summary><h2>Robot physics</h2></summary>
+      <p class="muted" style="margin-top:0">The controllers are never told these values. They are the imperfections of the simulated robot the firmware has to cope with.</p>
+      <dl class="stats" id="plant"></dl>
+    </details>
+  </aside>
+</main>
+
+<section class="panel compare">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">Compare every map and mode</h2>
+    <button id="compare">Run every combination</button>
+  </div>
+  <p class="muted" id="compareNote">Each combination is simulated to the end in C++ with the same robot, so the table is repeatable.</p>
+  <div style="overflow-x:auto">
+    <table id="results" aria-live="polite">
+      <thead><tr id="resultsHead"></tr></thead>
+      <tbody id="resultsBody"><tr><td colspan="5" class="muted">Press the button to run the comparison.</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  Source: <code>firmware/LineFollower/</code> (the Arduino sketch and the control code it shares with this page), <code>sim/</code> (robot physics and the WebAssembly bindings), <code>tests/</code>. Rebuild with <code>scripts/build.sh</code>. The robot model is a placeholder: its size comes from <code>config.h</code>, and the board on top is a dummy line follower card for practice.
+</footer>
+
+<script>
+"use strict";
+// The WebAssembly module built from the C++ sources, embedded by scripts/build.sh.
+const WASM_BASE64 = "AGFzbQEAAAABbxJgA39/fwBgAn99AX1gAX8Bf2ADf399AX9gAX8BfWACf38AYAV/f39/fwBgBX9/f31/AGAFf39/f30AYAZ/f399f38Bf2ABfwBgBH99fX0AYAJ/fQBgAAF/YAABfWABfQBgA39/fQF9YAN/f38BfwNIRwABAgMBAgIEBAQFBgcICQoKCwoMCgQCAg0CAg0CAgQEBAQCAgQODg4ODg4DDw0ODg4ODg4NDg4ODg4ODg0NDQ4ODQ0QDRERBAUBcAEBAQUDAQADBggBfwFBgOEICwftBS4GbWVtb3J5AgAJbWFwX2NvdW50ABgIbWFwX25hbWUAGQttYXBfc3VtbWFyeQAaCm1vZGVfY291bnQAGwltb2RlX25hbWUAHAxtb2RlX3N1bW1hcnkAHRJtb2RlX3NwZWVkX2RlZmF1bHQAHg5tb2RlX3NwZWVkX21pbgAfDm1vZGVfc3BlZWRfbWF4ACAIZ2VvbWV0cnkAIQxvdXRjb21lX25hbWUAIg1vdXRjb21lX3Nob3J0ACMLcGxhbnRfdmFsdWUAJBVydW5fd2hlZWxfYWN0dWFsX2xlZnQAJRZydW5fd2hlZWxfYWN0dWFsX3JpZ2h0ACYNcnVuX3NsaXBfbGVmdAAnDnJ1bl9zbGlwX3JpZ2h0ACgOcnVuX2JvZHlfc3BlZWQAKQ9ydW5fc2xpZGVfc3BlZWQAKglydW5fc3RhcnQAKwtydW5fYWR2YW5jZQAsC3J1bl9vdXRjb21lAC0IcnVuX3RpbWUALgxydW5fbGFwX3RpbWUALwxydW5fcHJvZ3Jlc3MAMA9ydW5fdHJ1ZV9vZmZzZXQAMRRydW5fZXN0aW1hdGVkX29mZnNldAAyFnJ1bl9lc3RpbWF0ZWRfcHJvZ3Jlc3MAMw1ydW5fbGluZV9zZWVuADQOcnVuX3doZWVsX2xlZnQANQ9ydW5fd2hlZWxfcmlnaHQANgpydW5fcG9zZV94ADcKcnVuX3Bvc2VfeQA4EHJ1bl9wb3NlX2hlYWRpbmcAORBydW5fdHJhY2tfbGVuZ3RoADoMcnVuX3BsYW5fbGFwADsQcnVuX2NlbnRyZV9jb3VudAA8CnJ1bl9jZW50cmUAPQtydW5fc2Vuc29ycwA+F3J1bl9lc3RpbWF0ZWRfY3VydmF0dXJlAD8ScnVuX3RydWVfY3VydmF0dXJlAEAPcnVuX3RyYWlsX2NvdW50AEEJcnVuX3RyYWlsAEIMaGVhZGxlc3NfbGFwAEMQaGVhZGxlc3Nfb3V0Y29tZQBECrFeR84BAwJ/AX0Bf0EAIQMgAEEANgIIIAAgAjoABCAAIAE2AgACQCACRQ0AIAJBA3EhBAJAAkAgAkEETw0AQwAAAAAhBQwBCyACQfwBcSEGQwAAAAAhBUEAIQMgASECA0AgAkEkaioCACACQRhqKgIAIAJBDGoqAgAgAioCACAFkpKSkiEFIAJBMGohAiAGIANBBGoiA0cNAAsLAkAgBEUNACABIANBDGxqIQIDQCACKgIAIAWSIQUgAkEMaiECIARBf2oiBA0ACwsgACAFOAIICwtZAgF/AX0CQCAALQAEIgINAEMAAAAADwsgACgCACEAQwAAAAAhAwJAA0AgAyAAKgIAkiIDIAFeDQEgAEEMaiEAIAJBf2oiAg0AC0MAAAAADwsgAEEEaioCAAsWACAAQQUgAEEFSRtBBHRBgIiAgABqC5wLBAJ9B38BfQN/AkACQCABKgIIIgNDCtejPJUiBEMAAIBPXSAEQwAAAABgcUUNACAEqSEFDAELQQAhBQsCQCAFs0MK16M8lCADXSAFaiIGQX9qQf//A3EiB0GYA0sNACAAIAM4AvAMIAAgBkEBaiIIOwHoDCAAIAMgCEH//wNxIglBf2oiCrKVIgM4AuwMAkACQCAJDQAgAEGas+bwAzYCACAAIApBAnRqQZqz5vADNgIAQQAhCwwBCyACIQQCQCABIANDAAAAAJQQgYCAgAAiA4wgAyADQwAAAABdGyIMIAEgACoC7AwQgYCAgAAiA4wgAyADQwAAAABdGyIDIAwgA14bIgNDF7fROF5FDQBDAAAAAEMAAMA/IAOVIgORIANDAAAAAF8bIgMgAiADIAJdGyEECyAAIAQ4AgAgAEEEaiENQQEhBQNAIAEgACoC7AwgBUH//wNxs5QQgYCAgAAiA4wgAyADQwAAAABdGyIEIAEgACoC7AwgBUF/arKUEIGAgIAAIgOMIAMgA0MAAAAAXRsiAyAEIANeGyEDAkAgBUEBaiIFIAlPDQAgAyABIAAqAuwMIAWylBCBgICAACIEjCAEIARDAAAAAF0bIgQgAyAEXhshAwsgAiEEAkAgA0MXt9E4XkUNAEMAAAAAQwAAwD8gA5UiA5EgA0MAAAAAXxsiAyACIAMgAl0bIQQLIA0gBDgCACANQQRqIQ0gCSAFRw0ACyAAQZqz5vADNgIAIAAgCkECdGpBmrPm8AM2AgBBACELIAZB//8DcSIORQ0AQQEhBSAKQQFxIQ8gACoCACEDAkAgCEH//wNxQQJGDQAgAEEEaiEFIApBfnEhBkEAIQ0DQAJAIAUqAgAiBEMAAAAAIAMgA5QgACoC7AxDAACAQJSSIgORIANDAAAAAF8bIgNeRQ0AIAUgAzgCACADIQQLAkAgBUEEaiIBKgIAIgNDAAAAACAEIASUIAAqAuwMQwAAgECUkiIEkSAEQwAAAABfGyIEXkUNACABIAQ4AgAgBCEDCyAFQQhqIQUgBiANQQJqIg1HDQALIA1BAWohBQsgDkEARyELIA9FDQAgACAFQQJ0aiIFKgIAQwAAAAAgAyADlCAAKgLsDEMAAIBAlJIiA5EgA0MAAAAAXxsiA15FDQAgBSADOAIACwJAIApB//8DcSIFRQ0AIAAgBUECdGoqAgAhAwJAAkAgCkEBcQ0AIAUhDQwBCwJAIAAgBUF/aiINQQJ0aiIBKgIAIgRDAAAAACADIAOUIAAqAuwMQwAAoECUkiIDkSADQwAAAABfGyIDXg0AIAQhAwwBCyABIAM4AgALIAVBAUYNACANQQJ0IABqQXhqIQUDQAJAIAVBBGoiASoCACIEQwAAAAAgAyADlCAAKgLsDEMAAKBAlJIiA5EgA0MAAAAAXxsiA15FDQAgASADOAIAIAMhBAsCQCAFKgIAIgNDAAAAACAEIASUIAAqAuwMQwAAoECUkiIEkSAEQwAAAABfGyIEXkUNACAFIAQ4AgAgBCEDCyAFQXhqIQUgDUF+aiINDQALC0MAAAAAIQMCQCALRQ0AQQEhASAJQQIgCUECSxtBf2oiBUEBcSEKIAAqAuwMIQQCQAJAIAhB//8DcUEDTw0AQwAAAAAhA0EAIQYMAQsgBUF+cSEJQwAAAAAhA0EAIQUgACENQQEhAQNAIAMgBCANKgIAIAAgAUECdGoqAgCSQwAAAD+UlZIgBCAAIAVBAXJB//8DcUECdGoiASoCACABQQRqKgIAkkMAAAA/lJWSIQMgDUEIaiENIAVBAmoiBUH//wNxIgZBAXIhASAJQX5qIgkNAAsLIApFDQAgAyAEIAAgBkECdGoqAgAgACABQQJ0aioCAJJDAAAAP5SVkiEDCyAAIAM4AvQMCyAHQZkDSQuLAQIBfwF9AkAgAUMAAAAAX0UNACAAKgIADwsCQCABIAAqAuwMlSIBIAAvAegMQX9qIgKyYEUNACAAIAJBAnRqKgIADwsCQAJAIAFDAACAT10gAUMAAAAAYHFFDQAgAakhAgwBC0EAIQILIAAgAkECdGoiAEEEaioCACAAKgIAIgOTIAEgArOTlCADkgspAQF/QZSLgIAAIQECQCAAQQNLDQAgAEECdEGklYCAAGooAgAhAQsgAQspAQF/QaKQgIAAIQECQCAAQQNLDQAgAEECdEG0lYCAAGooAgAhAQsgAQsxAQF9QwAAgD4hAQJAIABBf2pB/wFxIgBBAksNACAAQQJ0QdSVgIAAaioCACEBCyABCwcAQ83MTD4LKAEBfUMAAIA+IQECQCAAQQNLDQAgAEECdEHElYCAAGoqAgAhAQsgAQuNAQECfUMAAIA+IQJDAACAPiEDAkACQAJAAkAgAUF/aiIBDgMBAQACCyAAQc2Zs/YDNgIAQ83MzD4hAgwCC0MAAIA/IQMLIAAgAzgCACABQf8BcSIBQQJLDQAgAUECdEHUlYCAAGoqAgAhAgsgAEGAgICQBDYCECAAQoCAoJ6EgICAwAA3AgggACACOAIEC4EBACAAIAM2AgggACACNgIEIAAgAToAACAAIAQpAgA3AgwgAEEUaiAEQQhqKQIANwIAIABBHGogBEEQaigCADYCACAAQQA6AFAgAEKAgICAoLPmjD43AkggAEIANwJAIABCADcCOCAAQgA3AjAgAEIANwIoIABCADcCICAAQQA7AFEL8wgCAX8KfSOAgICAAEEQayIFJICAgIAAIAEgAioCACIGQwAAAACSIAIqAgQiB5IgAioCCCIIkiACKgIMIgmSIAIqAhAiCpIiC0PNzMw+XiICOgBSIAUgAjoACCAFIApDppvEvJQgCUOmm0S8lCAIQwAAAACUIAdDpptEPJQgBkOmm8Q8lEMAAAAAkpKSkpIgC5UiCEMAAAAAIAIbOAIMAkACQCACRQ0AIAEgCDgCKEEAIQIgAUEANgIkDAELIAEgASoCJCADkiIGOAIkIAZDmpkZP14hAgtDAAAAACEHQwAAAAAhBgJAAkACQAJAAkAgAS0AAA4EAQICAAMLIAAgASAFQQhqIAQgAxCNgICAAAwDCwJAIAJFDQAgAEECOgAIIABCADcCAAwDC0MAAAAAQwAAgD8gASoCDCIJQwAAgL6SQwAAgECUIgYgBkMAAIA/XhsgBkMAAAAAXRsiBkMAAAA/lEMAAAA/kiEKIAZDAADAQJRDAAAAQZIhDCAGQwAAoEKUIg1DAACgQpIhDiAIIAEqAiggC0PNzMw+XhshBkMAAAAAIQcCQCABLQBRRQ0AIAYgASoCMJMgA5UhBwsgAUEBOgBRIAEgBjgCMCABIAMgA0OPwvU8kpUgByABKgI0IguTlCALkiIIOAI0IAFDAACAPyABQRhqKgIAIgeVQwAAgD8gB0MAAAAAXhsiC4wiDyALIAYgA5QgASoCLJIiAyADIAteGyADIA9dGyIDOAIsIAkgDSAGjCAGIAZDAAAAAF0blCAKIAwgCJQgDiAGlCAHIAOUkpIiB4wgByAHQwAAAABdG5RDAACAP5KSlSEGDAELQ5qZGT4gASgCCCABKgIgEISAgIAAIgYgBkOamRk+XRsiBiABKAIEIAEqAiAQgYCAgACUIQcCQCABLQAAIgJBAkcNAAJAIAEqAiRDmpkZP15FDQAgAEIANwIAIABBAUECIAEqAiAgASgCBCoCCGAbOgAIDAMLAkACQCALQ83MzD5eRQ0AIAFBHGoqAgAhDCABQRRqKgIAIQ1DAAAAACELAkAgAS0AUUUNACAIIAEqAjCTIAOVIQsLIAFBAToAUSABIAg4AjAgASADIANDj8L1PJKVIAsgASoCNCIJk5QgCZIiDjgCNCABQwAAgD8gAUEYaioCACILlUMAAIA/IAtDAAAAAF4bIgmMIg8gCSAIIAOUIAEqAiySIgogCiAJXhsgCiAPXRsiCTgCLCAHIAwgDpQgDSAIlCALIAmUkpKSIQcMAQsgAUEAOgBRCyABIAYgA5QgASoCIJI4AiAMAQsgASAGIAOUIAEqAiCSIgM4AiAgAkEBRw0AIAMgASgCBCoCCGBFDQAgAEEBOgAIIABCADcCAAwBCyAAQQA6AAggAEOamZm/Q5qZmT8gB0PsUTg9lCIHIAaSIgMgA0OamZk/XhsgA0OamZm/XRs4AgQgAEOamZm/Q5qZmT8gBiAHkyIGIAZDmpmZP14bIAZDmpmZv10bOAIACyAFQRBqJICAgIAAC7AGAgF/B30CQAJAIAEqAiRDmpkZP15FDQAgAEEANgIAQQIhAUMAAAAAIQQMAQsgAi0AACEFAkAgA0UNACAFQf8BcUUNACADKgIAIgZDAAAAAJIgAyoCBCIHkiADKgIIIgiSIAMqAgwiCZIgAyoCECIKkiILQ83MzD5eRQ0AIAIqAgQgCkOmm8S8lCAJQ6abRLyUIAhDAAAAAJQgB0Omm0Q8lCAGQ6abxDyUQwAAAACSkpKSkiALlZNDCtejPZUhByAEIARDzcxMPZKVIQYCQAJAIAEtAFANACABQQE6AFAgASAHOAI8IAEqAkAhBwwBCyABIAYgByABKgI8IgiTlCAIkiIHOAI8IAEgBiAHIAiTIASVIAEqAkAiB5OUIAeSIgc4AkALIAEgBiAHIAEqAkggASoCRJND7FG4PZWSIAEqAkwiB0OamRk+IAdDmpkZPl4blSABKgI4IgeTlCAHkjgCOAtDAAAAACEJIAFDmpkZPiAEQwAAIMCUIAEqAkwiBpIiCCAEIASSIAaSIgogAUEQaioCACIHQwAAAABDzczMPyABKgI4IgaMIAYgBkMAAAAAXRsiC0NvEoM6IAtDbxKDOl4blSILkSALQwAAAABfGyILIAsgB14bIgcgByAKXhsgByAIXRsiByAHQ5qZGT5dGyIHOAJMIAYgB5QhBgJAAkAgBUH/AXFFDQAgASACKgIEIgg4AigCQCABLQBRRQ0AIAggASoCMJMgBJUhCQsgAUEBOgBRIAEgCDgCMCABIAQgBEOPwvU8kpUgCSABKgI0IgqTlCAKkiILOAI0IAFDAACAPyABQRhqKgIAIgmVQwAAgD8gCUMAAAAAXhsiCowiDCAKIAggBJQgASoCLJIiBCAEIApeGyAEIAxdGyIEOAIsIAYgC0MAAGBBlCAIQwAAIEOUIAkgBJSSkpIhBgwBCyABQQA6AFELIABDmpmZv0OamZk/IAcgBkPsUTg9lCIGkyIEIARDmpmZP14bIARDmpmZv10bOAIAQ5qZmb9DmpmZPyAGIAeSIgQgBEOamZk/XhsgBEOamZm/XRshBEEAIQELIAAgAToACCAAIAQ4AgQL9gMBAn8jgICAgABBIGsiBiSAgICAACAAIAEQgoCAgAAiASgCCCABLQAMEICAgIAAAkAgAEEMaiIHIAAgAxCDgICAACIBRQ0AIAAQj4CAgAAgBkEMaiACEIqAgIAAIAYgAzgCECAGIAM4AgwgAEG8DWogAiAAIAcgBkEMahCLgICAACAAQbQNaiAEQTBqIgIpAgA3AgAgAEGsDWogBEEoaikCADcCACAAQaQNaiAEQSBqKQIANwIAIABBnA1qIARBGGopAgA3AgAgAEGUDWogBEEQaikCADcCACAAQYwNaiAEQQhqKQIANwIAIAAgBCkCADcChA0gACAFNgKorAMgAEEAOgCmrAMgAEEAOwGkrAMgAEEANgKgywEgAEIANwKYywEgAEIANwKQywEgAEIANwKIywEgAEEAOwGEywEgAEEANgKIygEgAEIANwKAygEgAEIANwL4yQEgAEIANwLwyQEgAEIANwLoyQEgAEIANwLgyQEgACAEKgIsOALUyQEgACACKQIANwLYyQEgABCQgICAACAALwGkrAMiBEGPHEsNACAAIARBAWo7AaSsAyAAQaTLAWoiAiAEQQN0Qfj/D3FqIAAqAtTJATgCACACIARBAXRBAXJB//8DcUECdGogACoC2MkBOAIACyAGQSBqJICAgIAAIAELlgYLAX8BfQN/BH0BfwF9An8BfQJ/An0BfyAAKAIAIgEqAgQhAiAAQaQOaiABLQAIOgAAQQAhAyAAQaAOakEANgIAIABBnA5qIAI4AgAgAEGYDmpBADYCACAAQgA3ApAOAkACQCAALQAEIgQNAEEBIQUMAQtDAAAAACEGQwAAAAAhB0MAAAAAIQhDAAAAACEJQQEhBQNAAkACQCABIANBDGxqIgoqAgAiC0MK1yM8lUN3vn8/kiICQwAAgE9dIAJDAAAAAGBxRQ0AIAKpIQwMAQtBACEMCwJAIAVB//8DcSINQecHSw0AIAsgDEEBIAxBAUsbs5UhDiAKQQhqIQ8gCkEEaiEQQQAhCgNAAkAgECoCACIRQwAAAD+UIA6UIAiSIgJD2w/JP5IiC0PbD0lAXkUNAANAIAtD2w/JwJIiC0PbD0lAXg0ACwsCQCALQ9sPScBdRQ0AA0AgC0PbD8lAkiILQ9sPScBdDQALCwJAAkAgC0PbD8k/XkUNAEPbD0lAIAuTIQsMAQsgC0PbD8m/XUUNAEPbD0nAIAuTIQsLIAtDAACAPyALIAuUIhJDq6oqPiASIBJDAICdxZVDiYgIPJKUk5STlCELAkAgAkPbD0lAXkUNAANAIAJD2w/JwJIiAkPbD0lAXg0ACwsgDiALlCELAkAgAkPbD0nAXUUNAANAIAJD2w/JQJIiAkPbD0nAXQ0ACwsgCyAGkiEGAkACQCACQ9sPyT9eRQ0AQ9sPSUAgApMhAgwBCyACQ9sPyb9dRQ0AQ9sPScAgApMhAgsgACANQRhsaiIFQaQOaiAPLQAAOgAAIAVBoA5qIA4gCZIiCTgCACAFQZwOaiAROAIAIAVBmA5qIBEgDpQgCJIiCDgCACAFQZAOaiAGOAIAIAVBlA5qIA4gAkMAAIA/IAIgApQiC0Orqio+IAsgC0MAgJ3FlUOJiAg8kpSTlJOUlCAHkiIHOAIAIA1BAWohBSAKQQFqIgpB//8DcSAMTw0BIA1B5wdJIRMgBSENIBMNAAsLIANBAWoiAyAERw0ACwsgACAFOwHQyQELqAgIBX0GfwJ9AX8CfQF/An0DfwJAIAAqAtzJASIBQ9sPyT+SIgJD2w9JQF5FDQADQCACQ9sPycCSIgJD2w9JQF4NAAsLAkAgAkPbD0nAXUUNAANAIAJD2w/JQJIiAkPbD0nAXQ0ACwsCQAJAIAJD2w/JP15FDQBD2w9JQCACkyECDAELIAJD2w/Jv11FDQBD2w9JwCACkyECC0Orqio+IAIgApQiAyADQwCAncWVQ4mICDySlJMhBAJAIAFD2w9JQF5FDQADQCABQ9sPycCSIgFD2w9JQF4NAAsLIAMgBJQhAwJAIAFD2w9JwF1FDQADQCABQ9sPyUCSIgFD2w9JwF0NAAsLQwAAgD8gA5MhAwJAAkAgAUPbD8k/XkUNAEPbD0lAIAGTIQEMAQsgAUPbD8m/XUUNAEPbD0nAIAGTIQELIAIgA5QhBSAALwGEywEiBkEoaiIHIAAvAdDJASIIQX9qIAdB//8DcSAISRshCUEAIQpBACAGQVhqIgcgByAGSxshCyABQwAAgD8gASABlCICQ6uqKj4gAiACQwCAncWVQ4mICDySlJOUk5QhDCAAQawNaioCACENIAAoAqisAyEOIAAqAtjJASEPIAAqAtTJASEQQQEhBgNAQwrXIz1DCtcjvSAGQQFxIhEbIgEgDJQgD5IhEiABIAWUIBCSIRNBACEUA0AgACAUIApqQQJ0aiIVQdzKAWpDAAAAQCAUQf8BcbOTQ6abRDyUIgEgBZQgEpIiAzgCACAVQbTKAWogEyABIAyUkyIEOAIAIAshBwJAIAtB//8DcSAJQf//A3EiFksNAEPK8klxIQEgCyEHIAshBgNAIAAgBkH//wNxQRhsaiIIQZAOaioCACAEkyICIAKUIAhBlA5qKgIAIAOTIgIgApSSIgIgASACIAFdIggbIQEgBiAHIAgbIQcgBkEBaiIGQf//A3EgFk0NAAsLAkACQCAAIAdB//8DcUEYbGoiBkGkDmotAAANAEMAAAAAIQEMAQtDAAAAAEMAAIA/Q6qqKkAgBCAGQZAOaioCAJMiASABlCADIAZBlA5qKgIAkyIBIAGUkiIBkUMK1yO8kkOmm8S7lUMAAIA/kiABQwAAAABfGyIBIAFDAACAP14bIAFDAAAAAF0bIQELIBVBjMoBakMAAAAAQwAAgD8gDSAOQY3M5QBsQd/mu+MDaiIGQQh2s0MAAIAzlCAGQY3M5QBsQd/mu+MDaiIGQQh2s0MAAIAzlJIgBkGNzOUAbEHf5rvjA2oiBkEIdrNDAACAM5SSIAZBjczlAGxB3+a74wNqIg5BCHazQwAAgDOUkkMAAADAkkPXs90/lJQgAZIiASABQwAAgD9eGyABQwAAAABdGzgCACAUQQFqIhRBBUcNAAtBBSEKQQAhBiARDQALIAAgDjYCqKwDC40WBBF9AX8CfQN/IAAgAjgCiMoBIAAgATgChMoBIAAqAuDJASIEIAAqAujJASIFQ+xROL2UkiIGjCAGIAZDAAAAAF0bIgdDzcxMPiAHQ83MTD5eGyIIQ83MTD6UIQkgAEGcDWoqAgAiCiAHkkMAAEBAlCILjCEMQwAAgD8gAiAKlSINIA1DAACAP14bIQ4gAEGYDWoqAgAiD4wgCpUhByAAQaQNaioCAEMAAIC/QwAAgD8gASAKlSICIAJDAACAP14bIAJDAACAv10blCAPlCEQIAAqAoQNIhFDAAAAP5RDw/UcQZQgAEGQDWoqAgCUIhKMIRMgAEGoDWoqAgAhFCAAKgLsyQEhAUEGIRUDQEMAAIA/IQICQCABIAaTIAmVIhZDPQqfQF4NAEMAAIC/IQIgFkM9Cp/AXQ0AIBYgFiAWlCICIAIgAkMAAL1DkpRDAFqHRpKUQ8D3A0iSlCACIAIgAkMAAOBBlEMA4ERFkpRDAKJzR5KUQ8D3A0iSlSECCyAMIAsgASATIAKUIAcgAZQgEJKSIAcgEkMAAIA/IAIgApSTlCAJlZOVkyICIAIgC14bIAIgDF0bIQEgFUF/aiIVDQALIAAgATgC7MkBIAAgASAGkyAIlTgC9MkBIAAgEyASIAcgAZQgEJIiAiACIBJeGyACIBNdGyIIOAL8yQEgBUPsUTg9lCAEkiIGjCAGIAZDAAAAAF0bIgJDzcxMPiACQ83MTD5eGyIXQ83MTD6UIQkgCiACkkMAAEBAlCILjCEMIBRDAACAvyAOIA1DAACAv10blCAPlCEQIAAqAvDJASEBQQYhFQNAQwAAgD8hAgJAIAEgBpMgCZUiFkM9Cp9AXg0AQwAAgL8hAiAWQz0Kn8BdDQAgFiAWIBaUIgIgAiACQwAAvUOSlEMAWodGkpRDwPcDSJKUIAIgAiACQwAA4EGUQwDgREWSlEMAonNHkpRDwPcDSJKVIQILIAwgCyABIBMgApQgByABlCAQkpIgByASQwAAgD8gAiAClJOUIAmVk5WTIgIgAiALXhsgAiAMXRshASAVQX9qIhUNAAsgACABOALwyQEgACABIAaTIBeVOAL4yQEgACATIBIgByABlCAQkiICIAIgEl4bIAIgE10bIgE4AoDKAUMAAAAAQwAAAAAgEiASlCISIAEgAZSTIgIgAkMAAAAAXRsiApEgAkMAAAAAXxsiB4wiEyAHIAAqAuTJASIWIASMIgkgBCAEQwAAAABdGyICQ83MTD4gAkPNzEw+XhuVIABBoA1qKgIAjJQiAiACIAdeGyACIBNdGyETQwAAAABDAAAAACASIAggCJSTIgcgB0MAAAAAXRsiB5EgB0MAAAAAXxsiB4wiEiAHIAIgAiAHXhsgAiASXRshEiARIABBlA1qKgIAlEPD9RxBlCELQwAAgD8hBwJAIARDCtejPJUiAkM9Cp9AXg0AQwAAgL8hByACQz0Kn8BdDQAgAiACIAKUIgcgByAHQwAAvUOSlEMAWodGkpRDwPcDSJKUIAcgByAHQwAA4EGUQwDgREWSlEMAonNHkpRDwPcDSJKVIQcLIAAgASAIk0PsUTg9lCAAQYgNaioCAJUgA5QgBZIiAjgC6MkBIAAgAiADlCAAKgLcyQGSIgI4AtzJASAAIAkgBZQgEiATkiARQ703BjcgAEGMDWoqAgAiEiASlJWSIhOVkiADlCAWkiISOALkyQEgACAWIAWUIAggAZIgCyAHlJMgE5WSIAOUIASSIhM4AuDJASACQ9sPyT+SIgEhBwJAIAFD2w9JQF5FDQAgASEHA0AgB0PbD8nAkiIHQ9sPSUBeDQALCwJAIAdD2w9JwF1FDQADQCAHQ9sPyUCSIgdD2w9JwF0NAAsLAkACQCAHQ9sPyT9eRQ0AQ9sPSUAgB5MhBwwBCyAHQ9sPyb9dRQ0AQ9sPScAgB5MhBwsgByAHlCIWQ6uqKj4gFiAWQwCAncWVQ4mICDySlJOUIQkgAiEWAkAgAkPbD0lAXkUNACACIRYDQCAWQ9sPycCSIhZD2w9JQF4NAAsLQwAAgD8gCZMhCQJAIBZD2w9JwF1FDQADQCAWQ9sPyUCSIhZD2w9JwF0NAAsLIAcgCZQhBwJAAkAgFkPbD8k/XkUNAEPbD0lAIBaTIRYMAQsgFkPbD8m/XUUNAEPbD0nAIBaTIRYLIAAgEyAHlCAWQwAAgD8gFiAWlCIHQ6uqKj4gByAHQwCAncWVQ4mICDySlJOUk5QgEpSTIAOUIAAqAtTJAZIiBzgC1MkBAkAgAkPbD0lAXkUNAANAIAJD2w/JwJIiAkPbD0lAXg0ACwsCQCACQ9sPScBdRQ0AA0AgAkPbD8lAkiICQ9sPScBdDQALCwJAAkAgAkPbD8k/XkUNAEPbD0lAIAKTIQIMAQsgAkPbD8m/XUUNAEPbD0nAIAKTIQILIAIgApQiFkOrqio+IBYgFkMAgJ3FlUOJiAg8kpSTlCEWAkAgAUPbD0lAXkUNAANAIAFD2w/JwJIiAUPbD0lAXg0ACwtDAACAPyAWkyEWAkAgAUPbD0nAXUUNAANAIAFD2w/JQJIiAUPbD0nAXQ0ACwsgAiAWlCECAkACQCABQ9sPyT9eRQ0AQ9sPSUAgAZMhAQwBCyABQ9sPyb9dRQ0AQ9sPScAgAZMhAQsgACATIAKUIBIgAUMAAIA/IAEgAZQiAkOrqio+IAIgAkMAgJ3FlUOJiAg8kpSTlJOUlJIgA5QgACoC2MkBkiIWOALYyQECQEEAIAAvAYTLASIVQVhqIhggGCAVSxsiGCAVQShqIhUgAC8B0MkBIhlBf2ogFUH//wNxIBlJG0H//wNxIhpLDQBDyvJJcSECIBghFQNAIAAgFUH//wNxQRhsaiIZQZAOaioCACAHkyIBIAGUIBlBlA5qKgIAIBaTIgEgAZSSIgEgAiABIAJdIhkbIQIgFSAYIBkbIRggFUEBaiIVQf//A3EgGk0NAAsLIAAgGDsBhMsBIAAgGEH//wNxIhhBGGxqIhVBmA5qKgIAIgEhAgJAIAFD2w9JQF5FDQAgASECA0AgAkPbD8nAkiICQ9sPSUBeDQALCwJAIAJD2w9JwF1FDQADQCACQ9sPyUCSIgJD2w9JwF0NAAsLAkACQCACQ9sPyT9eRQ0AQ9sPSUAgApMhAgwBCyACQ9sPyb9dRQ0AQ9sPScAgApMhAgsgFUGUDmohGSAVQZAOaiEVIAIgApQiEkOrqio+IBIgEkMAgJ3FlUOJiAg8kpSTlCESAkAgAUPbD8k/kiIBQ9sPSUBeRQ0AA0AgAUPbD8nAkiIBQ9sPSUBeDQALCyAZKgIAIRMgFSoCACEJQwAAgD8gEpMhEgJAIAFD2w9JwF1FDQADQCABQ9sPyUCSIgFD2w9JwF0NAAsLIBYgE5MhEyAHIAmTIQkgAiASlCECAkACQCABQ9sPyT9eRQ0AQ9sPSUAgAZMhAQwBCyABQ9sPyb9dRQ0AQ9sPScAgAZMhAQsgACAAKgKUywEgA5I4ApTLASAAIAAqAqDLASADkiISOAKgywEgACAAIBhBGGxqQaAOaioCADgCjMsBIAAgAiAJlCATQwAAgD8gASABlCICQ6uqKj4gAiACQwCAncWVQ4mICDySlJOUkyABlJSTOAKIywECQCASQwrXozxgRQ0AIABBADYCoMsBIAAvAaSsAyIVQY8cSw0AIAAgFUEBajsBpKwDIABBpMsBaiIAIBVBA3RB+P8PcWogBzgCACAAIBVBAXRBAXJB//8DcUECdGogFjgCAAsLugICAn8BfSOAgICAAEEQayIBJICAgIAAIAAQkICAgAAgAEGADmogACkC7MkBNwIAIAFBBGogAEG8DWogAEGMygFqQ28SAzsgAEGgygFqEIyAgIAAIAAgASoCBCABKgIIQ28SAzsQkYCAgAACQCAALQCmrAMNAAJAIAAqAozLASAAKgIIQwrXI72SYEUNACAAQQE6AKasAyAAIAAqApTLATgCmMsBDAELIAEtAAwhAiAAIAAqApDLAUNvEgM7kkMAAAAAIAAqAojLASIDjCADIANDAAAAAF0bQylcDz1eGyIDOAKQywECQCADQwAAgD5eRQ0AIABBAjoApqwDDAELAkAgAkH/AXFFDQAgAEEDOgCmrAMMAQsgACoClMsBQwAAIEJgRQ0AIABBBDoApqwDCyABQRBqJICAgIAAC4IBAQJ/IAAgACoCnMsBIAGSIgE4ApzLASAALQCmrAMiAkUhAwJAIAFDbxIDO2BFDQAgAg0AA0AgABCSgICAACAAIAAqApzLAUNvEgO7kiIBOAKcywEgAC0ApqwDIgJFIQMgAUNvEgM7YEUNASACRQ0ACwsCQCADDQAgAEEANgKcywELCyMAAkAgAC0ApqwDDQADQCAAEJKAgIAAIAAtAKasA0UNAAsLC0oBAn1DAAAAACEBAkAgACoCCCICQwAAAABeRQ0AQwAAAABDAACAPyAAKgKMywEgApUiASABQwAAgD9eGyABQwAAAABdGyEBCyABCykBAX9BopCAgAAhAQJAIABBBEsNACAAQQJ0QeCVgIAAaigCACEBCyABCykBAX9BopCAgAAhAQJAIABBBEsNACAAQQJ0QfSVgIAAaigCACEBCyABCwQAQQYLEQAgAEH/AXEQgoCAgAAoAgALEQAgAEH/AXEQgoCAgAAoAgQLBABBBAscACAAQQAgAEEAShsiAEEDIABBA0kbEIWAgIAACxwAIABBACAAQQBKGyIAQQMgAEEDSRsQhoCAgAALHAAgAEEAIABBAEobIgBBAyAAQQNJGxCHgICAAAscACAAQQAgAEEAShsiAEEDIABBA0kbEIiAgIAACxwAIABBACAAQQBKGyIAQQMgAEEDSRsQiYCAgAALKAEBfUMAAAAAIQECQCAAQQtLDQAgAEECdEHAloCAAGoqAgAhAQsgAQsOACAAQf8BcRCWgICAAAsOACAAQf8BcRCXgICAAAsoAQF9QwAAAAAhAQJAIABBDEsNACAAQQJ0QfCWgIAAaioCACEBCyABCwsAQQAqApzhgYAACwsAQQAqAqDhgYAACwsAQQAqAqThgYAACwsAQQAqAqjhgYAACwsAQQAqApDhgYAACwsAQQAqApThgYAACzYAQbCXgIAAIABB/wFxIAFBACABQQBKGyIBQQMgAUEDSRsgAkGIloCAAEGR6ZeqAhCOgICAAAsQAEGwl4CAACAAEJOAgIAACwsAQQAtANbDg4AACwsAQQAqAsTigYAACwsAQQAqAsjigYAACw4AQbCXgIAAEJWAgIAACwsAQQAqArjigYAACwsAQQAqApSlgIAACwsAQQAqAoylgIAACwsAQQAtAL6lgIAACwsAQQAqArThgYAACwsAQQAqArjhgYAACwsAQQAqAoThgYAACwsAQQAqAojhgYAACwsAQQAqAozhgYAACwsAQQAqAriXgIAACwsAQQAqArCkgIAACwsAQQAvAYDhgYAAC6IBAQN/AkBBAC8BgOGBgABFDQBB4MODgAAhAEHApYCAACEBQQAhAgNAIAAgASkCADcCACAAQQhqIAFBDGoqAgA4AgAgAEEMakG8l4CAACABQRBqKgIAEISAgIAAOAIAIABBEGpDAACAP0MAAAAAIAFBFGotAAAbOAIAIAFBGGohASAAQRRqIQAgAkEBaiICQQAvAYDhgYAASQ0ACwtB4MODgAALpAQAQQBBACoCvOGBgAA4AoDghIAAQQBBACoC5OGBgAA4AoTghIAAQQBBACoCjOKBgAA4AojghIAAQQBBACoCwOGBgAA4AozghIAAQQBBACoC6OGBgAA4ApDghIAAQQBBACoCkOKBgAA4ApTghIAAQQBBACoCxOGBgAA4ApjghIAAQQBBACoC7OGBgAA4ApzghIAAQQBBACoClOKBgAA4AqDghIAAQQBBACoCyOGBgAA4AqTghIAAQQBBACoC8OGBgAA4AqjghIAAQQBBACoCmOKBgAA4AqzghIAAQQBBACoCzOGBgAA4ArDghIAAQQBBACoC9OGBgAA4ArTghIAAQQBBACoCnOKBgAA4ArjghIAAQQBBACoC0OGBgAA4ArzghIAAQQBBACoC+OGBgAA4AsDghIAAQQBBACoCoOKBgAA4AsTghIAAQQBBACoC1OGBgAA4AsjghIAAQQBBACoC/OGBgAA4AszghIAAQQBBACoCpOKBgAA4AtDghIAAQQBBACoC2OGBgAA4AtTghIAAQQBBACoCgOKBgAA4AtjghIAAQQBBACoCqOKBgAA4AtzghIAAQQBBACoC3OGBgAA4AuDghIAAQQBBACoChOKBgAA4AuTghIAAQQBBACoCrOKBgAA4AujghIAAQQBBACoC4OGBgAA4AuzghIAAQQBBACoCiOKBgAA4AvDghIAAQQBBACoCsOKBgAA4AvTghIAAQYDghIAACwsAQQAqAqSlgIAACxgAQQAvAbTigYAAQRhsQcylgIAAaioCAAsLAEEALwHUw4OAAAsIAEHU4oGAAAuDAQIBfwF9QQMhA0MAAIC/IQQCQEGwl4CAACAAQf8BcSABQQAgAUEAShsiAUEDIAFBA0kbIAJBiJaAgABBkemXqgIQjoCAgABFDQBBsJeAgAAQlICAgABBACoCyOKBgABDAACAv0EALQDWw4OAACIDQQFGGyEEC0EAIAM2AvjghIAAIAQLCwBBACgC+OCEgAALuAEBBH8CQCACRQ0AIAJBA3EhA0EAIQQCQCACQQRJDQAgAkF8cSEFQQAhBANAIAAgBGoiAiABIARqIgYtAAA6AAAgAkEBaiAGQQFqLQAAOgAAIAJBAmogBkECai0AADoAACACQQNqIAZBA2otAAA6AAAgBSAEQQRqIgRHDQALCyADRQ0AIAEgBGohAiAAIARqIQQDQCAEIAItAAA6AAAgAkEBaiECIARBAWohBCADQX9qIgMNAAsLIAALtQEBA38CQCACRQ0AIAJBB3EhA0EAIQQCQCACQQhJDQAgAkF4cSEFQQAhBANAIAAgBGoiAiABOgAAIAJBB2ogAToAACACQQZqIAE6AAAgAkEFaiABOgAAIAJBBGogAToAACACQQNqIAE6AAAgAkECaiABOgAAIAJBAWogAToAACAFIARBCGoiBEcNAAsLIANFDQAgACAEaiECA0AgAiABOgAAIAJBAWohAiADQX9qIgMNAAsLIAALC6wPAQBBgAgLpA+1BQAAKgUAADAIAAAJAAAAIgYAAN0EAACgCAAACQAAAGAEAAADBQAAEAkAAAcAAAAWBgAAYwUAAHAJAAAJAAAA0gUAALYEAADgCQAACQAAAFoFAACCBAAAUAoAAAcAAABIYWlycGluIEFsbGV5AHRpbWVkIG91dABUaW1lZCBvdXQARmFzdCwgd2lkZSBiZW5kcyB3aGVyZSB0aGUgcmFjaW5nIGxpbmUgbWF0dGVycyBtb3N0AFRpZ2h0IDkwIGRlZ3JlZSBjb3JuZXJzIGF0IDggY20gcmFkaXVzAEFsdGVybmF0aW5nIFMtYmVuZHMgd2l0aCAxNSBjbSByYWRpdXMAVGhyZWUgMTgwIGRlZ3JlZSB0dXJucyBhdCAxMCBjbSByYWRpdXMARm91ciBnZW50bGUgOTAgZGVncmVlIGNvcm5lcnMgb24gbG9uZyBzdHJhaWdodHMAU3dlZXBlcnMAUGFpbnRlZCBsaW5lIHdpdGggZ2FwcyB0aGUgcm9ib3QgbXVzdCBjb2FzdCBvdmVyAHVua25vd24ARnVsbCBtYXAgKyBJUiBjb3JyZWN0aW9uAFdhcm0tVXAgT3ZhbABEcml2aW5nAHJ1bm5pbmcAWmlnLVphZwBTdG9wcGVkOiBnYXZlIHVwIG9uIHRoZSBsaW5lAERlcmFpbGVkOiBkcmlmdGVkIG9mZiB0aGUgbGluZQBEYXNoZWQgTGluZQBDaGljYW5lAHN0b3BwZWQAZGVyYWlsZWQAZmluaXNoZWQARmluaXNoZWQATm9ybWFsIFBJRABSZXBsYXlzIHRoZSByYWNpbmcgcHJvZmlsZSBmb3Igc3BlZWQgYW5kIHN0ZWVyaW5nLCBhbmQgdXNlcyB0aGUgSVIgc2Vuc29ycyB0byBjb3JyZWN0IGRyaWZ0IGFuZCBicmlkZ2UgZ2Fwcy4AU3RlZXJzIG9ubHkgZnJvbSB0aGUgSVIgc2Vuc29ycy4gTm8gbWFwLCBzbyBpdCBjYW5ub3Qgc2xvdyBkb3duIGJlZm9yZSBhIGNvcm5lci4AVHdvIHNlbnNvciByb3dzLCBhaGVhZCBvZiBhbmQgYmVoaW5kIHRoZSBheGxlLiBNZWFzdXJlcyB0aGUgY3VydmUgaXQgaXMgaW4sIGFuZCBzbG93cyBmb3IgdGlnaHQgYmVuZHMgYW5kIHNwZWVkcyB1cCBvbiB3aWRlIG9uZXMuIE5vIG1hcC4AS25vd3MgdGhlIHdob2xlIG1hcCBhbmQgcmVwbGF5cyB0aGUgcmFjaW5nIHNwZWVkIHByb2ZpbGUgb3BlbiBsb29wLiBUaGUgc2Vuc29ycyBhcmUgaWdub3JlZC4ARG91YmxlIElSICh0d28gcm93cykARnVsbCBtYXAgKGJsaW5kKQAAAAAAAAAAAAAAAAAAmpkZPwAAAAABAAAAQUbxPlVVVUABAAAAmpkZPwAAAAABAAAAQUbxPlVVVUABAAAAmpkZPwAAAAABAAAAQUbxPlVVVUABAAAAmpkZPwAAAAABAAAAQUbxPlVVVUABAAAAmpmZPgAAAAABAAAAAAAAAM3MzD4AAAAAAQAAAEFG8T1VVdXAAQAAAEFG8T1VVdVAAQAAAJqZmT4AAAAAAQAAAEFG8T1VVdVAAQAAAEFG8T1VVdXAAQAAAM3MzD4AAAAAAQAAAIDZoD4AAKDAAQAAAM3MzD4AAAAAAQAAAAAAAAAAAAA/AAAAAAEAAACA2aA+AAAgQQEAAAAAAAA/AAAAAAEAAACA2aA+AAAgwQEAAAAAAAA/AAAAAAEAAACA2aA+AAAgQQEAAADNzMw+AAAAAAEAAAAAAAAAAAAAAAAAAADNzMw+AAAAAAEAAACPwnU9AAAAAAAAAADNzMw+AAAAAAEAAADgD8k+AACAQAEAAADNzMw9AAAAAAAAAACamZk+AAAAAAEAAADgD8k+AACAwAEAAACPwnU9AAAAAAAAAAAAAAA/AAAAAAEAAAAAAAAAmpmZPgAAAAABAAAAAK4APgAASMEBAAAAAACAPgAAAAABAAAAAK4APgAASEEBAAAAAACAPgAAAAABAAAAAK4APgAASMEBAAAAAACAPgAAAAABAAAAAK4APgAASEEBAAAAmpmZPgAAAAABAAAAAAAAAAAAgD8AAAAAAQAAAIDZID9VVdU/AQAAAAAAAD8AAAAAAQAAAJUKhj8AAADAAQAAAM3MzD4AAAAAAQAAAIDZID9VVdU/AQAAAM3MTD8AAAAAAQAAAE0GAAASCAAAnAUAAP0HAADFBgAAoAcAAFgGAAAWBwAAZmZmPwAAgD8AAIA/zcxMPwAAgD8AAIA/zczMPsIFAABEBgAA9wUAANoFAAB4BAAAygUAADsGAAAyBgAAKgYAAG4EAACamZk+bxIDOgrXozyamRk/j8L1PAAAgECamZk/AAAAQQAAgD/Jdn4/CtcjPY/C9bxvEgM8j8L1POxRuD0K1yM9pptEPArXozwAAKBAKVwPPQrXIz0K16M8pptEPG8Sgz1YObQ8bxIDPJqZmT6amRk/j8L1PAAAgECamZk/AAAAQQAAgD/Jdn4/CtcjPY/C9bxvEgM8j8L1PG8SAzoAgwwEbmFtZQAJCHNpbS53YXNtAdALRwAqVHJhY2s6OmluaXQoU2VnbWVudCBjb25zdCosIHVuc2lnbmVkIGNoYXIpAR9UcmFjazo6Y3VydmF0dXJlQXQoZmxvYXQpIGNvbnN0AhZtYXBJbmZvKHVuc2lnbmVkIGNoYXIpAyZSYWNpbmdQbGFuOjpidWlsZChUcmFjayBjb25zdCYsIGZsb2F0KQQgUmFjaW5nUGxhbjo6c3BlZWRBdChmbG9hdCkgY29uc3QFDm1vZGVOYW1lKE1vZGUpBhFtb2RlU3VtbWFyeShNb2RlKQcWbW9kZVNwZWVkRGVmYXVsdChNb2RlKQgSbW9kZVNwZWVkTWluKE1vZGUpCRJtb2RlU3BlZWRNYXgoTW9kZSkKE2RlZmF1bHRUdW5pbmcoTW9kZSkLS0xpbmVDb250cm9sbGVyOjpiZWdpbihNb2RlLCBUcmFjayBjb25zdCosIFJhY2luZ1BsYW4gY29uc3QqLCBUdW5pbmcgY29uc3QmKQw5TGluZUNvbnRyb2xsZXI6OnVwZGF0ZShmbG9hdCBjb25zdCosIGZsb2F0LCBmbG9hdCBjb25zdCopDUJMaW5lQ29udHJvbGxlcjo6ZG91YmxlSXIoTGluZUVzdGltYXRlIGNvbnN0JiwgZmxvYXQgY29uc3QqLCBmbG9hdCkOSldvcmxkOjpzdGFydCh1bnNpZ25lZCBjaGFyLCBNb2RlLCBmbG9hdCwgUGxhbnRQYXJhbXMgY29uc3QmLCB1bnNpZ25lZCBpbnQpDxRXb3JsZDo6YnVpbGRDZW50cmUoKRAOV29ybGQ6OnNlbnNlKCkRI1dvcmxkOjphY3R1YXRlKGZsb2F0LCBmbG9hdCwgZmxvYXQpEg1Xb3JsZDo6dGljaygpExVXb3JsZDo6YWR2YW5jZShmbG9hdCkUEVdvcmxkOjpydW5Ub0VuZCgpFRdXb3JsZDo6cHJvZ3Jlc3MoKSBjb25zdBYUb3V0Y29tZU5hbWUoT3V0Y29tZSkXFW91dGNvbWVTaG9ydChPdXRjb21lKRgJbWFwX2NvdW50GQhtYXBfbmFtZRoLbWFwX3N1bW1hcnkbCm1vZGVfY291bnQcCW1vZGVfbmFtZR0MbW9kZV9zdW1tYXJ5HhJtb2RlX3NwZWVkX2RlZmF1bHQfDm1vZGVfc3BlZWRfbWluIA5tb2RlX3NwZWVkX21heCEIZ2VvbWV0cnkiDG91dGNvbWVfbmFtZSMNb3V0Y29tZV9zaG9ydCQLcGxhbnRfdmFsdWUlFXJ1bl93aGVlbF9hY3R1YWxfbGVmdCYWcnVuX3doZWVsX2FjdHVhbF9yaWdodCcNcnVuX3NsaXBfbGVmdCgOcnVuX3NsaXBfcmlnaHQpDnJ1bl9ib2R5X3NwZWVkKg9ydW5fc2xpZGVfc3BlZWQrCXJ1bl9zdGFydCwLcnVuX2FkdmFuY2UtC3J1bl9vdXRjb21lLghydW5fdGltZS8McnVuX2xhcF90aW1lMAxydW5fcHJvZ3Jlc3MxD3J1bl90cnVlX29mZnNldDIUcnVuX2VzdGltYXRlZF9vZmZzZXQzFnJ1bl9lc3RpbWF0ZWRfcHJvZ3Jlc3M0DXJ1bl9saW5lX3NlZW41DnJ1bl93aGVlbF9sZWZ0Ng9ydW5fd2hlZWxfcmlnaHQ3CnJ1bl9wb3NlX3g4CnJ1bl9wb3NlX3k5EHJ1bl9wb3NlX2hlYWRpbmc6EHJ1bl90cmFja19sZW5ndGg7DHJ1bl9wbGFuX2xhcDwQcnVuX2NlbnRyZV9jb3VudD0KcnVuX2NlbnRyZT4LcnVuX3NlbnNvcnM/F3J1bl9lc3RpbWF0ZWRfY3VydmF0dXJlQBJydW5fdHJ1ZV9jdXJ2YXR1cmVBD3J1bl90cmFpbF9jb3VudEIJcnVuX3RyYWlsQwxoZWFkbGVzc19sYXBEEGhlYWRsZXNzX291dGNvbWVFBm1lbWNweUYGbWVtc2V0BxIBAA9fX3N0YWNrX3BvaW50ZXIJCgEABy5yb2RhdGEAOAlwcm9kdWNlcnMBDHByb2Nlc3NlZC1ieQEMVWJ1bnR1IGNsYW5nETE4LjEuMyAoMXVidW50dTEpACwPdGFyZ2V0X2ZlYXR1cmVzAisPbXV0YWJsZS1nbG9iYWxzKwhzaWduLWV4dA==";
+// Results written by tools/export_results.cpp during the build, from the same C++.
+const RESULTS = {"seeds":40,"maps":[{"name":"Warm-Up Oval","planLap":6.06,"modes":[{"mode":"Normal PID","defaultLap":23.31,"defaultOutcome":"finished","seedsFinished":40,"meanLap":23.3},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":7.11,"defaultOutcome":"finished","seedsFinished":40,"meanLap":7.12},{"mode":"Double IR (two rows)","defaultLap":12.05,"defaultOutcome":"finished","seedsFinished":40,"meanLap":12.05}]},{"name":"Chicane","planLap":3.74,"modes":[{"mode":"Normal PID","defaultLap":12.08,"defaultOutcome":"finished","seedsFinished":40,"meanLap":12.08},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":4.35,"defaultOutcome":"finished","seedsFinished":40,"meanLap":4.35},{"mode":"Double IR (two rows)","defaultLap":6.08,"defaultOutcome":"finished","seedsFinished":40,"meanLap":6.08}]},{"name":"Hairpin Alley","planLap":5.18,"modes":[{"mode":"Normal PID","defaultLap":16.27,"defaultOutcome":"finished","seedsFinished":40,"meanLap":16.27},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":5.57,"defaultOutcome":"finished","seedsFinished":40,"meanLap":5.57},{"mode":"Double IR (two rows)","defaultLap":7.5,"defaultOutcome":"finished","seedsFinished":40,"meanLap":7.5}]},{"name":"Dashed Line","planLap":3.57,"modes":[{"mode":"Normal PID","defaultLap":13.32,"defaultOutcome":"finished","seedsFinished":39,"meanLap":13.33},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":4.22,"defaultOutcome":"finished","seedsFinished":40,"meanLap":4.22},{"mode":"Double IR (two rows)","defaultLap":6.9,"defaultOutcome":"finished","seedsFinished":40,"meanLap":6.9}]},{"name":"Zig-Zag","planLap":3.99,"modes":[{"mode":"Normal PID","defaultLap":10.93,"defaultOutcome":"finished","seedsFinished":40,"meanLap":10.93},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":4.28,"defaultOutcome":"finished","seedsFinished":40,"meanLap":4.28},{"mode":"Double IR (two rows)","defaultLap":5.03,"defaultOutcome":"finished","seedsFinished":40,"meanLap":5.03}]},{"name":"Sweepers","planLap":5.58,"modes":[{"mode":"Normal PID","defaultLap":24.09,"defaultOutcome":"finished","seedsFinished":40,"meanLap":24.08},{"mode":"Full map (blind)","defaultLap":-1.0,"defaultOutcome":"derailed","seedsFinished":0,"meanLap":-1.0},{"mode":"Full map + IR correction","defaultLap":6.63,"defaultOutcome":"finished","seedsFinished":40,"meanLap":6.63},{"mode":"Double IR (two rows)","defaultLap":13.15,"defaultOutcome":"finished","seedsFinished":40,"meanLap":13.15}]}]};
+
+const $ = (id) => document.getElementById(id);
+const dec = new TextDecoder();
+let ex = null;
+
+// Reads a NUL-terminated string that lives in the module's memory.
+function str(ptr) {
+  const bytes = new Uint8Array(ex.memory.buffer);
+  let end = ptr;
+  while (bytes[end] !== 0) end++;
+  return dec.decode(bytes.subarray(ptr, end));
+}
+// Views onto module memory. Taken fresh each time, because the buffer can be replaced.
+function floats(ptr, count) { return new Float32Array(ex.memory.buffer, ptr, count); }
+
+const view = {
+  canvas: $("view"),
+  ctx: null,
+  centre: null,   // Float32Array of x, y, curvature, planned speed, line, per point
+  count: 0,
+  bounds: null,
+  topSpeed: 1,
+};
+
+const ui = {
+  running: false,
+  view: "orbit",
+  wheelAng: [0, 0],
+  lastFrame: 0,
+  map: 0,
+  mode: 2,
+  speed: 0.25,
+  outcome: 0,
+  showPlan: true,
+};
+
+const modeDefs = [];   // filled from the C++ mode table
+
+function boot() {
+  const bin = Uint8Array.from(atob(WASM_BASE64), (c) => c.charCodeAt(0));
+  return WebAssembly.instantiate(bin, {}).then(({ instance }) => {
+    ex = instance.exports;
+    setup();
+  });
+}
+
+function setup() {
+  view.ctx = view.canvas.getContext("2d");
+
+  // Maps: names and summaries straight from the C++ catalogue.
+  const mapSelect = $("map");
+  for (let i = 0; i < ex.map_count(); i++) {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = str(ex.map_name(i));
+    mapSelect.appendChild(opt);
+  }
+
+  // Modes: names and summaries straight from the C++ controller.
+  const modes = $("modes");
+  for (let i = 0; i < ex.mode_count(); i++) {
+    const label = document.createElement("label");
+    label.className = "mode";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "mode";
+    input.value = i;
+    input.checked = i === ui.mode;
+    const name = document.createElement("strong");
+    name.textContent = str(ex.mode_name(i));
+    const desc = document.createElement("span");
+    desc.textContent = str(ex.mode_summary(i));
+    label.append(input, name, desc);
+    modes.appendChild(label);
+    modeDefs.push(name.textContent);
+  }
+
+  $("compare").textContent = `Run all ${ex.map_count() * ex.mode_count()} combinations`;
+  setSpeedForMode();
+
+  // Robot physics: values from the C++ PlantParams, labels here.
+  const plantRows = [
+    ["Robot mass (kg)", ex.plant_value(0).toFixed(2)],
+    ["Tyre friction μ", ex.plant_value(1).toFixed(2)],
+    ["Rolling resistance c_rr", ex.plant_value(2).toFixed(3)],
+    ["Motor stall force per wheel (N)", ex.plant_value(3).toFixed(1)],
+    ["Motor free speed (m/s)", ex.plant_value(4).toFixed(2)],
+    ["Tyre cornering stiffness (N/rad)", ex.plant_value(5).toFixed(1)],
+    ["Yaw inertia (kg m²)", ex.plant_value(12).toExponential(1)],
+    ["Left / right motor effectiveness", ex.plant_value(6).toFixed(3) + " / " + ex.plant_value(7).toFixed(3)],
+    ["Sensor noise (1σ)", ex.plant_value(8).toFixed(3)],
+    ["Start placed (x, y) m", ex.plant_value(9).toFixed(3) + ", " + ex.plant_value(10).toFixed(3)],
+    ["Start heading (rad)", ex.plant_value(11).toFixed(3)],
+    ["Wheelbase (m)", ex.geometry(0).toFixed(3)],
+    ["Sensors × spacing (m)", ex.geometry(4).toFixed(0) + " × " + ex.geometry(2).toFixed(3)],
+  ];
+  const plant = $("plant");
+  for (const [k, v] of plantRows) {
+    const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = v;
+    plant.append(dt, dd);
+  }
+
+  // Comparison table header from the C++ mode names.
+  const head = $("resultsHead");
+  ["Map", "Planned lap", ...modeDefs].forEach((t, i) => {
+    const th = document.createElement("th");
+    th.textContent = t;
+    if (i > 0) th.className = "num";
+    head.appendChild(th);
+  });
+
+  $("mapSummary").textContent = str(ex.map_summary(0));
+  bindEvents();
+  showPrecomputed();
+  loadRun();
+  requestAnimationFrame(frame);
+}
+
+function bindEvents() {
+  $("map").addEventListener("change", (e) => { ui.map = +e.target.value; $("mapSummary").textContent = str(ex.map_summary(ui.map)); loadRun(); });
+  document.querySelectorAll('input[name="mode"]').forEach((el) => {
+    el.addEventListener("change", (e) => { ui.mode = +e.target.value; setSpeedForMode(); loadRun(); });
+  });
+  $("pidSpeed").addEventListener("input", (e) => {
+    ui.speed = +e.target.value;
+    $("pidValue").textContent = ui.speed.toFixed(2);
+  });
+  $("pidSpeed").addEventListener("change", () => loadRun());
+  $("start").addEventListener("click", () => {
+    if (ui.outcome !== 0) loadRun();
+    ui.running = true;
+    updateButtons();
+  });
+  $("pause").addEventListener("click", () => { ui.running = false; updateButtons(); });
+  $("reset").addEventListener("click", () => loadRun());
+  $("showPlan").addEventListener("change", (e) => { ui.showPlan = e.target.checked; });
+  $("compare").addEventListener("click", runComparison);
+  window.addEventListener("resize", () => draw());
+  const hints = { orbit: "Drag to rotate, scroll to zoom", top: "Orthographic top view, scroll to zoom", chase: "Camera follows the robot, drag to look around" };
+  document.querySelectorAll("#views button").forEach((b) => {
+    b.addEventListener("click", () => {
+      ui.view = b.dataset.view;
+      document.querySelectorAll("#views button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      $("viewHint").textContent = hints[ui.view];
+      cam.zoom = 1;
+      draw();
+    });
+  });
+  let drag = null;
+  view.canvas.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY]; view.canvas.setPointerCapture(e.pointerId); });
+  view.canvas.addEventListener("pointerup", () => { drag = null; });
+  view.canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+    drag = [e.clientX, e.clientY];
+    if (ui.view === "orbit") { cam.yaw -= dx * 0.008; cam.pitch = Math.min(1.5, Math.max(0.15, cam.pitch + dy * 0.006)); }
+    if (ui.view === "chase") { cam.chaseYaw -= dx * 0.008; cam.chasePitch = Math.min(1.4, Math.max(0.12, cam.chasePitch + dy * 0.006)); }
+    draw();
+  });
+  view.canvas.addEventListener("wheel", (e) => { e.preventDefault(); cam.zoom = Math.min(6, Math.max(0.3, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+}
+
+// Each mode has its own speed: the firmware gives the default, the slowest and the fastest.
+function setSpeedForMode() {
+  const names = ["Base speed", "Top speed", "Top speed", "Speed cap"];
+  const slider = $("pidSpeed");
+  slider.min = ex.mode_speed_min(ui.mode);
+  slider.max = ex.mode_speed_max(ui.mode);
+  ui.speed = ex.mode_speed_default(ui.mode);
+  slider.value = ui.speed;
+  $("pidValue").textContent = ui.speed.toFixed(2);
+  $("speedName").textContent = names[ui.mode];
+}
+
+// Starts the chosen map and mode in C++ and reads back the geometry for drawing.
+function loadRun() {
+  ui.running = false;
+  ex.run_start(ui.map, ui.mode, ui.speed);
+  view.topSpeed = ui.speed;
+  $("topSpeed").textContent = ui.speed.toFixed(2) + " m/s";
+  ui.outcome = 0;
+  const n = ex.run_centre_count();
+  view.count = n;
+  view.centre = floats(ex.run_centre(), n * 5).slice();
+  view.bounds = computeBounds(view.centre, n);
+  view.edges = computeEdges(view.centre, n);
+  ui.wheelAng = [0, 0];
+  $("planLap").textContent = ex.run_plan_lap().toFixed(2) + " s";
+  $("lap").textContent = "—";
+  updateButtons();
+  updateStatus();
+  draw();
+}
+
+function computeBounds(c, n) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = c[i * 5], y = c[i * 5 + 1];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+function updateButtons() {
+  const finished = ui.outcome !== 0;
+  $("start").textContent = ui.running ? "Running…" : (finished ? "Run again" : "Start");
+  $("start").disabled = ui.running;
+  $("pause").disabled = !ui.running;
+}
+
+function frame(ts) {
+  const dt = ui.lastFrame ? Math.min(0.1, (ts - ui.lastFrame) / 1000) : 0;
+  ui.lastFrame = ts;
+  if (ui.running && ex.run_outcome() === 0) {
+    ex.run_advance(dt);
+    const wr = geometry(7);
+    ui.wheelAng[0] += ex.run_wheel_actual_left() / wr * dt;
+    ui.wheelAng[1] += ex.run_wheel_actual_right() / wr * dt;
+  }
+  if (ui.running && ex.run_outcome() !== 0) {
+    ui.running = false;
+    ui.outcome = ex.run_outcome();
+    updateButtons();
+  }
+  cam.follow += wrapPi(ex.run_pose_heading() - Math.PI / 2 - cam.follow) * 0.12;
+  draw();
+  updateStatus();
+  requestAnimationFrame(frame);
+}
+
+// ---- Drawing: a 3D view made of flat polygons on a 2D canvas (no WebGL, no shaders) ----
+// Every dimension is a number from the C++ firmware (config.h) or a metre value from the C++ simulation.
+const FOV = 40 * Math.PI / 180;
+const NEAR = 0.02;
+const LIGHT = (() => { const l = [-0.35, -0.45, 0.82]; const n = Math.hypot(...l); return l.map((v) => v / n); })();
+const cam = { yaw: -0.5, pitch: 0.95, zoom: 1, follow: 0, chaseYaw: 0, chasePitch: 0.45 };
+let robotModel = null;
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const wrapPi = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+// Camera for the current view: orbit (perspective), top (orthographic) or chase (perspective, follows the robot).
+function makeCamera(W, H) {
+  const b = view.bounds;
+  const mapW = b.maxX - b.minX + 0.3, mapH = b.maxY - b.minY + 0.3;
+  const C = { W, H, ortho: false, k: 1, fpx: H / (2 * Math.tan(FOV / 2)) };
+  let target, yaw, pitch, dist;
+  if (ui.view === "top") {
+    C.ortho = true;
+    C.k = cam.zoom * Math.min(W / mapW, H / mapH);
+    target = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 0];
+    yaw = 0; pitch = Math.PI / 2 - 0.001; dist = 10;
+  } else if (ui.view === "chase") {
+    const h = ex.run_pose_heading();
+    target = [ex.run_pose_x() + 0.05 * Math.cos(h), ex.run_pose_y() + 0.05 * Math.sin(h), 0.015];
+    yaw = cam.follow + cam.chaseYaw; pitch = cam.chasePitch; dist = 0.48 / cam.zoom;
+  } else {
+    target = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 0];
+    yaw = cam.yaw; pitch = cam.pitch;
+    dist = (Math.max(mapW, mapH) / (2 * Math.tan(FOV / 2))) * 0.95 / cam.zoom;
+  }
+  C.pitch = pitch;
+  C.eye = [target[0] + dist * Math.cos(pitch) * Math.sin(yaw), target[1] - dist * Math.cos(pitch) * Math.cos(yaw), target[2] + dist * Math.sin(pitch)];
+  C.f = norm([target[0] - C.eye[0], target[1] - C.eye[1], target[2] - C.eye[2]]);
+  C.r = norm([C.f[1], -C.f[0], 0]);
+  C.u = cross(C.r, C.f);
+  return C;
+}
+
+// World point to [screen x, screen y, depth].
+function proj(C, x, y, z) {
+  const d = [x - C.eye[0], y - C.eye[1], z - C.eye[2]];
+  const cx = dot(d, C.r), cy = dot(d, C.u), cz = dot(d, C.f);
+  if (C.ortho) return [C.W / 2 + C.k * cx, C.H / 2 - C.k * cy, cz];
+  return [C.W / 2 + C.fpx * cx / Math.max(cz, 1e-4), C.H / 2 - C.fpx * cy / Math.max(cz, 1e-4), cz];
+}
+const visible = (C, p) => C.ortho || p[2] > NEAR;
+
+function polyPath(ctx, pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+// ---- The robot, built from the firmware's own dimensions ----
+function boxFaces(x0, x1, y0, y1, z0, z1, tone) {
+  const f = (pts, n) => ({ pts, n, tone });
+  return [
+    f([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], [1, 0, 0]),
+    f([[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]], [-1, 0, 0]),
+    f([[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]], [0, 1, 0]),
+    f([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0]),
+    f([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1]),
+  ];
+}
+
+function buildRobot() {
+  const wb = geometry(0), fwd = geometry(1), spacing = geometry(2), n = geometry(4);
+  const rear = geometry(6), wr = geometry(7), ww = geometry(8), bl = geometry(9), bh = geometry(10), clr = geometry(11);
+  const bw = wb - ww - 0.004;                 // chassis width: between the wheels
+  const zt = clr + bh;                        // chassis top
+  const barW = n * spacing - spacing + 0.012; // sensor board width
+  const faces = [];
+  const add = (...a) => faces.push(...boxFaces(...a));
+  add(-bl / 2, bl / 2, -bw / 2, bw / 2, clr, zt, 250);                       // chassis
+  add(-0.029, 0.029, -0.029, 0.029, zt, zt + 0.0016, 150);                    // the line follower card (a dummy board)
+  add(-0.004, 0.012, -0.008, 0.008, zt + 0.0016, zt + 0.0046, 40);            // microcontroller
+  add(0.014, 0.024, -0.016, -0.006, zt + 0.0016, zt + 0.0036, 60);            // motor driver
+  add(-0.024, -0.006, 0.010, 0.026, zt + 0.0016, zt + 0.0126, 80);            // battery
+  add(fwd - 0.004, fwd + 0.004, -barW / 2, barW / 2, 0.004, 0.0085, 70);      // front sensor board
+  add(bl / 2 - 0.001, fwd - 0.004, -0.010, 0.010, 0.010, 0.0135, 130);        // front arm
+  add(-rear - 0.004, -rear + 0.004, -barW / 2, barW / 2, 0.004, 0.0085, 70);  // rear sensor board
+  add(-rear + 0.004, -bl / 2 + 0.001, -0.010, 0.010, 0.010, 0.0135, 130);     // rear arm
+  add(0.020, 0.028, -0.004, 0.004, 0, clr, 120);                              // front caster
+  add(-0.028, -0.020, -0.004, 0.004, 0, clr, 120);                            // rear caster
+  return { faces, wb, wr, ww, bl, bw };
+}
+
+function wheelFaces(m, side, ang) {
+  const N = 18, r = m.wr, hw = m.ww / 2, yc = side * m.wb / 2, out = [];
+  const pt = (a, y, rad = r) => [rad * Math.cos(a), y, r + rad * Math.sin(a)];
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * 2 * Math.PI, a1 = ((i + 1) / N) * 2 * Math.PI, mid = (a0 + a1) / 2;
+    out.push({ pts: [pt(a0, yc - hw), pt(a1, yc - hw), pt(a1, yc + hw), pt(a0, yc + hw)], n: [Math.cos(mid), 0, Math.sin(mid)], tone: 55 });
+  }
+  const ring = (y) => Array.from({ length: N }, (_, i) => pt((i / N) * 2 * Math.PI, y));
+  out.push({ pts: ring(yc + hw), n: [0, 1, 0], tone: 70 });
+  out.push({ pts: ring(yc - hw), n: [0, -1, 0], tone: 70 });
+  // A light spoke on the outer face so the wheel's turning can be seen.
+  const y = yc + side * (hw + 0.0004), c = Math.cos(ang), s = Math.sin(ang), t = 0.0022;
+  out.push({ pts: [[0 - s * t, y, r + c * t], [0.85 * r * c - s * t, y, r + 0.85 * r * s + c * t], [0.85 * r * c + s * t, y, r + 0.85 * r * s - c * t], [s * t, y, r - c * t]], n: [0, side, 0], tone: 225, bias: -0.03 });
+  return out;
+}
+
+function drawRobot(ctx, C) {
+  if (!robotModel) robotModel = buildRobot();
+  const m = robotModel;
+  const px = ex.run_pose_x(), py = ex.run_pose_y(), h = ex.run_pose_heading();
+  const ch = Math.cos(h), sh = Math.sin(h);
+  const toWorld = (p) => [px + p[0] * ch - p[1] * sh, py + p[0] * sh + p[1] * ch, p[2]];
+  const rot = (n) => [n[0] * ch - n[1] * sh, n[0] * sh + n[1] * ch, n[2]];
+
+  // Soft footprint on the floor.
+  const fp = [[-0.045, -0.055], [0.05, -0.055], [0.05, 0.055], [-0.045, 0.055]].map((p) => proj(C, ...toWorld([p[0], p[1], 0.0004])));
+  if (fp.every((p) => visible(C, p))) { polyPath(ctx, fp); ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.fill(); }
+
+  const faces = [...m.faces, ...wheelFaces(m, 1, ui.wheelAng[0]), ...wheelFaces(m, -1, ui.wheelAng[1])];
+  const drawn = [];
+  for (const f of faces) {
+    const wp = f.pts.map(toWorld);
+    const c = wp.reduce((a, p) => [a[0] + p[0] / wp.length, a[1] + p[1] / wp.length, a[2] + p[2] / wp.length], [0, 0, 0]);
+    const n = rot(f.n);
+    const toEye = C.ortho ? [-C.f[0], -C.f[1], -C.f[2]] : [C.eye[0] - c[0], C.eye[1] - c[1], C.eye[2] - c[2]];
+    if (dot(n, toEye) <= 0) continue;
+    const sp = wp.map((p) => proj(C, ...p));
+    if (!sp.every((p) => visible(C, p))) continue;
+    const depth = sp.reduce((a, p) => a + p[2], 0) / sp.length + (f.bias || 0);
+    const lum = 0.5 + 0.5 * Math.max(0, dot(n, LIGHT));
+    drawn.push({ sp, depth, g: Math.min(255, Math.round(f.tone * lum)) });
+  }
+  drawn.sort((a, b) => b.depth - a.depth);
+  ctx.lineWidth = 0.7;
+  ctx.lineJoin = "round";
+  for (const d of drawn) {
+    polyPath(ctx, d.sp);
+    ctx.fillStyle = `rgb(${d.g},${d.g},${d.g})`;
+    ctx.fill();
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.stroke();
+  }
+}
+
+function draw() {
+  const { canvas, ctx, centre, count, bounds, edges } = view;
+  if (!ctx || !centre) return;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width || 640, H = rect.height || 480;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#efefef";
+  ctx.fillRect(0, 0, W, H);
+  const C = makeCamera(W, H);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Floor grid, one line every 25 cm.
+  ctx.strokeStyle = "#dadada";
+  ctx.lineWidth = 1;
+  const g0x = Math.floor((bounds.minX - 0.25) / 0.25) * 0.25, g1x = Math.ceil((bounds.maxX + 0.25) / 0.25) * 0.25;
+  const g0y = Math.floor((bounds.minY - 0.25) / 0.25) * 0.25, g1y = Math.ceil((bounds.maxY + 0.25) / 0.25) * 0.25;
+  const seg = (a, b) => {
+    const p = proj(C, ...a), q = proj(C, ...b);
+    if (!visible(C, p) || !visible(C, q)) return;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  };
+  for (let x = g0x; x <= g1x + 1e-6; x += 0.25) seg([x, g0y, 0], [x, g1y, 0]);
+  for (let y = g0y; y <= g1y + 1e-6; y += 0.25) seg([g0x, y, 0], [g1x, y, 0]);
+
+  // Project the tape edges once: outer edge (the black tape) and inner edge (the speed profile strip).
+  const PL = [], PR = [], Pl = [], Pr = [];
+  for (let i = 0; i < count; i++) {
+    const e = edges, o = i * 8;
+    PL.push(proj(C, e[o], e[o + 1], 0)); PR.push(proj(C, e[o + 2], e[o + 3], 0));
+    Pl.push(proj(C, e[o + 4], e[o + 5], 0)); Pr.push(proj(C, e[o + 6], e[o + 7], 0));
+  }
+  const strip = (A, B, i, fill) => {
+    const q = [A[i - 1], B[i - 1], B[i], A[i]];
+    if (!q.every((p) => visible(C, p))) return;
+    polyPath(ctx, q);
+    ctx.fillStyle = fill; ctx.strokeStyle = fill; ctx.lineWidth = 0.6;
+    ctx.fill(); ctx.stroke();
+  };
+  for (let i = 1; i < count; i++) {
+    if (centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5) strip(PL, PR, i, "#111111");
+  }
+  // Gaps in the tape: a thin dotted centre line.
+  ctx.save();
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = "#8a8a8a";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < count; i++) {
+    if (centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5) continue;
+    const p = proj(C, centre[(i - 1) * 5], centre[(i - 1) * 5 + 1], 0), q = proj(C, centre[i * 5], centre[i * 5 + 1], 0);
+    if (!visible(C, p) || !visible(C, q)) continue;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  }
+  ctx.restore();
+  // Racing speed profile from the C++ planner: darker is slower, lighter is faster.
+  if (ui.showPlan) {
+    for (let i = 1; i < count; i++) {
+      if (!(centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5)) continue;
+      const v = 0.5 * (centre[(i - 1) * 5 + 3] + centre[i * 5 + 3]) / view.topSpeed;
+      const g = Math.round(35 + 195 * Math.min(1, Math.max(0, v)));
+      strip(Pl, Pr, i, `rgb(${g},${g},${g})`);
+    }
+  }
+
+  // Finish line.
+  const last = count - 1, fe = edges, fo = last * 8;
+  const f1 = proj(C, fe[fo] * 1.0, fe[fo + 1], 0), f2 = proj(C, fe[fo + 2], fe[fo + 3], 0);
+  if (visible(C, f1) && visible(C, f2)) {
+    ctx.beginPath(); ctx.moveTo(f1[0], f1[1]); ctx.lineTo(f2[0], f2[1]);
+    ctx.strokeStyle = "#111"; ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+  }
+
+  // Trail of where the robot really went.
+  const nt = ex.run_trail_count();
+  if (nt > 1) {
+    const tr = floats(ex.run_trail(), nt * 2);
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let pen = false;
+    for (let i = 0; i < nt; i++) {
+      const p = proj(C, tr[i * 2], tr[i * 2 + 1], 0.0006);
+      if (!visible(C, p)) { pen = false; continue; }
+      if (pen) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+      pen = true;
+    }
+    ctx.stroke();
+  }
+
+  // What each sensor reads, painted on the floor under it: filled means it sees the tape.
+  const n = geometry(4);
+  const sensors = floats(ex.run_sensors(), 2 * n * 3);
+  for (let i = 0; i < 2 * n; i++) {
+    const p = proj(C, sensors[i * 3 + 1], sensors[i * 3 + 2], 0.0006);
+    if (!visible(C, p)) continue;
+    const rp = 0.0048 * (C.ortho ? C.k : C.fpx / p[2]);
+    ctx.beginPath();
+    ctx.ellipse(p[0], p[1], rp, rp * Math.max(0.2, Math.sin(C.pitch)), 0, 0, Math.PI * 2);
+    ctx.fillStyle = sensors[i * 3] > 0.5 ? "#111" : "#fff";
+    ctx.fill();
+    ctx.strokeStyle = sensors[i * 3] > 0.5 ? "#fff" : "#111";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  drawRobot(ctx, C);
+}
+
+// Tape edges, from the C++ centre line: outer (full tape width) and inner (profile strip), left then right.
+function computeEdges(c, n) {
+  const e = new Float32Array(n * 8);
+  const half = geometry(3) / 2, inner = half * 0.45;
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    const dx = c[b * 5] - c[a * 5], dy = c[b * 5 + 1] - c[a * 5 + 1];
+    const l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+    const x = c[i * 5], y = c[i * 5 + 1];
+    e.set([x + nx * half, y + ny * half, x - nx * half, y - ny * half, x + nx * inner, y + ny * inner, x - nx * inner, y - ny * inner], i * 8);
+  }
+  return e;
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+}
+function geometry(i) { return ex.geometry(i); }
+
+function updateStatus() {
+  const outcome = ex.run_outcome();
+  const duration = ex.run_time();
+  const progress = ex.run_progress();
+  $("time").textContent = duration.toFixed(2) + " s";
+  $("bar").style.width = (progress * 100).toFixed(1) + "%";
+  if (outcome === 1) $("lap").textContent = ex.run_lap_time().toFixed(2) + " s";
+
+  const status = $("status");
+  status.textContent = str(ex.outcome_name(outcome));
+  status.className = "status " + (outcome === 1 ? "ok" : outcome === 0 ? "" : "bad");
+  if (outcome === 0 && !ui.running && duration === 0) status.textContent = "Ready. Press Start.";
+  if (outcome === 0 && ui.running) status.textContent = `${str(ex.mode_name(ui.mode))}: running`;
+}
+
+// ---- Comparison: every map in every mode, each run to its end in C++ ----
+function runComparison() {
+  const body = $("resultsBody");
+  body.innerHTML = "";
+  const rows = [];
+  for (let m = 0; m < ex.map_count(); m++) {
+    const laps = [];
+    const outs = [];
+    let planLap = 0;
+    for (let md = 0; md < ex.mode_count(); md++) {
+      const lap = ex.headless_lap(m, md, ex.mode_speed_default(md));
+      laps.push(lap);
+      outs.push(ex.headless_outcome());
+      if (md === 0) planLap = ex.run_plan_lap();
+    }
+    rows.push({ name: str(ex.map_name(m)), planLap, laps, outs });
+  }
+  // Put the live run back on the page's selection.
+  loadRun();
+  renderTable(rows.map((r) => ({
+    name: r.name,
+    planLap: r.planLap,
+    laps: r.laps,
+    labels: r.outs.map((o) => str(ex.outcome_short(o))),
+  })));
+  $("compareNote").textContent = "Live: each combination was just simulated to the end in WebAssembly, with the same robot and noise seed. Green marks the fastest finished lap on each map.";
+}
+
+// Fills the comparison table. Each row: name, planLap, laps (seconds, or -1), labels (outcome text for failures).
+function renderTable(rows) {
+  const body = $("resultsBody");
+  body.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const finished = r.laps.filter((l) => l > 0);
+    const bestLap = finished.length ? Math.min(...finished) : -1;
+    const name = document.createElement("td");
+    name.textContent = r.name;
+    const plan = document.createElement("td");
+    plan.className = "num";
+    plan.textContent = r.planLap.toFixed(2) + " s";
+    tr.append(name, plan);
+    r.laps.forEach((lap, i) => {
+      const td = document.createElement("td");
+      td.className = "num";
+      if (lap > 0) {
+        td.textContent = lap.toFixed(2) + " s";
+        if (lap === bestLap) td.classList.add("best");
+      } else {
+        td.textContent = r.labels[i];
+        td.classList.add("fail");
+      }
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  }
+}
+
+// Shows the results the C++ build computed at publish time, before anything is run.
+function showPrecomputed() {
+  const rows = RESULTS.maps.map((m) => ({
+    name: m.name,
+    planLap: m.planLap,
+    laps: m.modes.map((md) => md.defaultLap),
+    labels: m.modes.map((md) => md.defaultOutcome),
+  }));
+  renderTable(rows);
+  const n = RESULTS.seeds;
+  const totalRuns = RESULTS.maps.length * n;
+  const parts = RESULTS.maps[0].modes.map((md, i) => {
+    const finished = RESULTS.maps.reduce((sum, m) => sum + m.modes[i].seedsFinished, 0);
+    return `${md.mode} ${finished}/${totalRuns}`;
+  });
+  $("compareNote").textContent = `Built by the C++ simulator (tools/export_results.cpp) for this site: the default run for each combination, then ${n} noise seeds per map. Runs finished across all maps and seeds: ${parts.join(", ")}. Press the button to rerun them live.`;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+boot().catch((err) => {
+  $("status").textContent = "Could not load the simulator: " + err.message;
+  $("status").className = "status bad";
+});
+</script>
+</body>
+</html>

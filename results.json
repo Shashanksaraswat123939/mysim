@@ -1,0 +1,41 @@
+{
+  "seeds": 40,
+  "maps": [
+    {"name": "Warm-Up Oval", "planLap": 6.06, "modes": [
+      {"mode": "Normal PID", "defaultLap": 23.31, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 23.30},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 7.11, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 7.12},
+      {"mode": "Double IR (two rows)", "defaultLap": 12.05, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 12.05}
+    ]},
+    {"name": "Chicane", "planLap": 3.74, "modes": [
+      {"mode": "Normal PID", "defaultLap": 12.08, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 12.08},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 4.35, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 4.35},
+      {"mode": "Double IR (two rows)", "defaultLap": 6.08, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 6.08}
+    ]},
+    {"name": "Hairpin Alley", "planLap": 5.18, "modes": [
+      {"mode": "Normal PID", "defaultLap": 16.27, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 16.27},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 5.57, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 5.57},
+      {"mode": "Double IR (two rows)", "defaultLap": 7.50, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 7.50}
+    ]},
+    {"name": "Dashed Line", "planLap": 3.57, "modes": [
+      {"mode": "Normal PID", "defaultLap": 13.32, "defaultOutcome": "finished", "seedsFinished": 39, "meanLap": 13.33},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 4.22, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 4.22},
+      {"mode": "Double IR (two rows)", "defaultLap": 6.90, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 6.90}
+    ]},
+    {"name": "Zig-Zag", "planLap": 3.99, "modes": [
+      {"mode": "Normal PID", "defaultLap": 10.93, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 10.93},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 4.28, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 4.28},
+      {"mode": "Double IR (two rows)", "defaultLap": 5.03, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 5.03}
+    ]},
+    {"name": "Sweepers", "planLap": 5.58, "modes": [
+      {"mode": "Normal PID", "defaultLap": 24.09, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 24.08},
+      {"mode": "Full map (blind)", "defaultLap": -1.00, "defaultOutcome": "derailed", "seedsFinished": 0, "meanLap": -1.00},
+      {"mode": "Full map + IR correction", "defaultLap": 6.63, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 6.63},
+      {"mode": "Double IR (two rows)", "defaultLap": 13.15, "defaultOutcome": "finished", "seedsFinished": 40, "meanLap": 13.15}
+    ]}
+  ]
+}
