@@ -29,24 +29,23 @@
     color: var(--ink);
     font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  /* Sized for a laptop screen (about 16:10, 1280x800 to 1440x900): the simulator and its
-     controls fit in one view, and the comparison table sits below the fold. */
+  /* Sized for a laptop screen (about 16:10, 1280x800 to 1440x900): the simulator fills the first
+     view. The controls column sits beside it and flows down the page; it has no scroll bar of its own. */
   header { padding: 14px 20px 0; max-width: 1280px; margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
   main {
     max-width: 1280px;
-    height: calc(100vh - 44px);
-    min-height: 600px;
     margin: 0 auto;
     padding: 10px 20px 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
     gap: 14px;
   }
   @media (max-width: 900px) {
-    main { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); }
-    .controls { overflow: visible; }
+    main { grid-template-columns: minmax(0, 1fr); }
+    #stageWrap { height: auto; }
   }
   .panel {
     background: var(--panel);
@@ -56,7 +55,7 @@
   }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
   #stage { padding: 10px; display: flex; flex-direction: column; min-height: 0; }
-  #stageWrap { position: relative; flex: 1; min-height: 360px; }
+  #stageWrap { position: relative; height: calc(100vh - 150px); min-height: 480px; }
   canvas#view {
     position: absolute;
     inset: 0;
@@ -68,7 +67,7 @@
   .legend { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
   .ramp { width: 180px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, hsl(0 80% 45%), hsl(60 80% 45%), hsl(120 80% 45%)); }
   .legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
-  .controls { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding: 2px 6px 12px 2px; }
+  .controls { display: flex; flex-direction: column; gap: 12px; padding: 2px 2px 12px; }
   label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
   select, input[type="range"] { font: inherit; }
   select {
@@ -105,10 +104,6 @@
   }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   button:disabled { opacity: .5; cursor: default; }
-  .seg button { border-radius: 0; margin-left: -1px; }
-  .seg button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
-  .seg button:last-child { border-radius: 0 7px 7px 0; }
-  .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .status {
     font-size: 18px;
     font-weight: 650;
@@ -162,6 +157,15 @@
 
   <aside class="controls">
     <section class="panel">
+      <h2>Control mode</h2>
+      <div class="modes" id="modes" role="radiogroup" aria-label="Control mode"></div>
+      <label class="field" style="margin-top:14px" for="pidSpeed">
+        <span>Normal PID base speed: <span id="pidValue"></span> m/s</span>
+        <input type="range" id="pidSpeed" min="0.20" max="0.90" step="0.01">
+      </label>
+    </section>
+
+    <section class="panel">
       <h2>Run</h2>
       <p class="status" id="status" role="status" aria-live="polite">Ready</p>
       <div class="progress" aria-hidden="true"><div id="bar"></div></div>
@@ -169,24 +173,11 @@
         <button class="primary" id="start">Start</button>
         <button id="pause" disabled>Pause</button>
         <button id="reset">Reset</button>
-        <div class="seg row" role="group" aria-label="Simulation speed" id="speeds" style="margin-left:auto">
-          <button data-speed="1" aria-pressed="true">1×</button>
-          <button data-speed="4" aria-pressed="false">4×</button>
-          <button data-speed="16" aria-pressed="false">16×</button>
-        </div>
       </div>
       <dl class="stats" style="margin-top:12px">
         <dt>Time</dt><dd id="time">0.00 s</dd>
-        <dt>Planned lap (racing profile)</dt><dd id="planLap">—</dd>
+        <dt>Planned lap</dt><dd id="planLap">—</dd>
         <dt>Actual lap</dt><dd id="lap">—</dd>
-        <dt>Line offset, true (+ = line left of robot)</dt><dd id="trueOff">0.0 mm</dd>
-        <dt>Line offset, IR sensors</dt><dd id="estOff">—</dd>
-        <dt>Line under sensor bar</dt><dd id="seen">—</dd>
-        <dt>Commanded wheel speed L / R</dt><dd id="wheels">0.00 / 0.00 m/s</dd>
-        <dt>Actual wheel speed L / R</dt><dd id="wheelsActual">0.00 / 0.00 m/s</dd>
-        <dt>Wheel slip L / R</dt><dd id="slip">0% / 0%</dd>
-        <dt>Sideways slide</dt><dd id="slide">0.0 mm/s</dd>
-        <dt>Curve radius, true / measured</dt><dd id="radius">—</dd>
       </dl>
     </section>
 
@@ -196,15 +187,6 @@
         <select id="map"></select>
       </label>
       <p class="muted" id="mapSummary"></p>
-    </section>
-
-    <section class="panel">
-      <h2>Control mode</h2>
-      <div class="modes" id="modes" role="radiogroup" aria-label="Control mode"></div>
-      <label class="field" style="margin-top:14px" for="pidSpeed">
-        <span>Normal PID base speed: <span id="pidValue"></span> m/s</span>
-        <input type="range" id="pidSpeed" min="0.20" max="0.90" step="0.01">
-      </label>
     </section>
 
     <details class="panel">
@@ -265,7 +247,6 @@ const view = {
 
 const ui = {
   running: false,
-  speed: 1,
   lastFrame: 0,
   map: 0,
   mode: 2,
@@ -378,12 +359,6 @@ function bindEvents() {
   });
   $("pause").addEventListener("click", () => { ui.running = false; updateButtons(); });
   $("reset").addEventListener("click", () => loadRun());
-  document.querySelectorAll("#speeds button").forEach((b) => {
-    b.addEventListener("click", () => {
-      ui.speed = +b.dataset.speed;
-      document.querySelectorAll("#speeds button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    });
-  });
   $("showPlan").addEventListener("change", (e) => { ui.showPlan = e.target.checked; });
   $("compare").addEventListener("click", runComparison);
   window.addEventListener("resize", () => draw());
@@ -426,7 +401,7 @@ function frame(ts) {
   const dt = ui.lastFrame ? Math.min(0.1, (ts - ui.lastFrame) / 1000) : 0;
   ui.lastFrame = ts;
   if (ui.running && ex.run_outcome() === 0) {
-    ex.run_advance(dt * ui.speed);
+    ex.run_advance(dt);
   }
   if (ui.running && ex.run_outcome() !== 0) {
     ui.running = false;
@@ -577,11 +552,6 @@ function drawRobot(ctx) {
   ctx.restore();
 }
 
-// Radius in centimetres for a curvature in 1/m. Nearly straight reads as "straight".
-function radiusText(k) {
-  return Math.abs(k) < 0.5 ? "straight" : (100 / Math.abs(k)).toFixed(0) + " cm";
-}
-
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
 }
@@ -593,16 +563,6 @@ function updateStatus() {
   const progress = ex.run_progress();
   $("time").textContent = duration.toFixed(2) + " s";
   $("bar").style.width = (progress * 100).toFixed(1) + "%";
-  const trueMm = ex.run_true_offset() * 1000;
-  $("trueOff").textContent = trueMm.toFixed(1) + " mm";
-  $("estOff").textContent = ex.run_line_seen() ? (ex.run_estimated_offset() * 1000).toFixed(1) + " mm" : "no line";
-  $("seen").textContent = ex.run_line_seen() ? "yes" : "no";
-  $("wheels").textContent = ex.run_wheel_left().toFixed(2) + " / " + ex.run_wheel_right().toFixed(2) + " m/s";
-  $("wheelsActual").textContent = ex.run_wheel_actual_left().toFixed(2) + " / " + ex.run_wheel_actual_right().toFixed(2) + " m/s";
-  $("slip").textContent = (Math.round(ex.run_slip_left() * 100) || 0) + "% / " + (Math.round(ex.run_slip_right() * 100) || 0) + "%";
-  $("slide").textContent = (ex.run_slide_speed() * 1000).toFixed(1) + " mm/s";
-  // Double IR (mode 3) measures the radius of the bend under it. Other modes do not.
-  $("radius").textContent = ui.mode === 3 ? radiusText(ex.run_true_curvature()) + " / " + radiusText(ex.run_estimated_curvature()) : "—";
   if (outcome === 1) $("lap").textContent = ex.run_lap_time().toFixed(2) + " s";
 
   const status = $("status");
