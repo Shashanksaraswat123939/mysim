@@ -126,7 +126,7 @@ can only feed the controller what a real robot would have.
 
 **What the controller can see.** Only: the five sensor values, the map (through `Track`), the plan, and its
 own configuration. It cannot see the true position, the physics parameters, the motor states or the
-outcome. The simulator's ground truth (`World::judge()`) and physics are never passed to the controller.
+outcome. The simulator's ground truth (`worldJudge()`) and physics are never passed to the controller.
 
 ### 2.2 Information flow
 
@@ -134,20 +134,20 @@ outcome. The simulator's ground truth (`World::judge()`) and physics are never p
 
 | Step | Function | Input | Output | Units |
 |---|---|---|---|---|
-| 1. Sense | `World::sense()` or `readSensors()` | true pose (sim) or ADC (robot) | `sensors[5]` | 0 white .. 1 black |
+| 1. Sense | `worldSense()` or `readSensors()` | true pose (sim) or ADC (robot) | `sensors[5]` | 0 white .. 1 black |
 | 2. Estimate | `estimateLine()` | `sensors[5]` | `seen`, `offset` | m, + = line left of robot |
-| 3. Decide | `LineController::update()` | offset, plan, map, time step | `Command{left, right, status}` | m/s |
-| 4. Act | `World::actuate()` or `driveWheels()` | wheel speeds | motion (sim) or PWM (robot) | N, m/s, m |
-| 5. Judge | `World::judge()` (sim only) | true offset, progress, status | `Outcome` | m, s |
+| 3. Decide | `controllerUpdate()` | offset, plan, map, time step | `Command{left, right, status}` | m/s |
+| 4. Act | `worldActuate()` or `driveWheels()` | wheel speeds | motion (sim) or PWM (robot) | N, m/s, m |
+| 5. Judge | `worldJudge()` (sim only) | true offset, progress, status | `Outcome` | m, s |
 
 In the simulator, step 4 is where the physics lives: motor forces (with back-EMF), tyre forces (with slip
 and the friction limit), sideways forces (with the friction circle), rolling loss, then the body's
 accelerations, integrated into the pose.
 
-**B. Starting a run (`World::start`).**
+**B. Starting a run (`worldStart()`).**
 
 ```
-map index --> mapInfo() --> Track::init --> RacingPlan::build --> buildCentre() --> LineController::begin
+map index --> mapInfo() --> trackInit --> planBuild --> buildCentre() --> controllerBegin
                                                                            |
                        reset body, wheels, timers --> sense() --> first trail point
 ```
@@ -197,11 +197,11 @@ web/template.html  <------------- embed_wasm.py (wasm + results) ---------+
 |---|---|---|---|
 | `sensors[5]` | sense / readSensors | estimateLine | reflectance of each sensor |
 | `offset` | estimateLine | line_controller | line position under the bar, m |
-| `plan.speedAt(s)` | RacingPlan | line_controller | fastest safe speed at distance `s`, m/s |
+| `planSpeedAt(&plan, s)` | RacingPlan | line_controller | fastest safe speed at distance `s`, m/s |
 | `track.curvatureAt(s)` | Track | line_controller, planner | bend of the route at `s`, 1/m |
-| `Command` | LineController | World::actuate, hardware | wheel speeds and status |
+| `Command` | Controller | worldActuate(), hardware | wheel speeds and status |
 | `PlantParams` | sim/world.h | World | physical values; never seen by the controller |
-| `Outcome` | World::judge | wasm exports, tests | finished, derailed, stopped, timed out |
+| `Outcome` | worldJudge() | wasm exports, tests | finished, derailed, stopped, timed out |
 | results.json | export_results | page, site | lap times and completions, every map and mode |
 
 ## 3. The robot model
@@ -333,12 +333,12 @@ That limit shapes the whole controller design.
 
 - **`Tuning`** holds the controller gains and base speed.
 - **`Command`** holds the two wheel speeds and a status (`Driving`, `Finished`, `GaveUp`).
-- **`LineController::update(sensors, dt)`** is called once per control tick and returns a `Command`.
+- **`controllerUpdate(&c, sensors, dt)`** is called once per control tick and returns a `Command`.
   The controller is the only part of the robot that makes decisions.
 
 ## 5. The four control modes
 
-All three live in `LineController::update()` in `line_controller.cpp`. Every control tick they follow
+All three live in `controllerUpdate()` in `line_controller.cpp`. Every control tick they follow
 the same pattern: compute a turn rate `ω` and speed `v`, then convert them to wheel speeds.
 
 ### 5.1 Normal PID
@@ -395,7 +395,7 @@ yet. That is the reason for the map-based modes.
 correct turn rate from the plan and the map, and applies it.
 
 ```
-v = plan.speedAt(s)
+v = planSpeedAt(&plan, s)
 ω = v · κ(s)            // the turn rate that follows the curve at speed v
 ```
 
@@ -427,11 +427,11 @@ simulator only (section 6.4). The controller never sees it.
 gets the robot most of the way around the bend, and the PID corrects what is left over.
 
 ```
-v = plan.speedAt(s)
+v = planSpeedAt(&plan, s)
 ω = v · κ(s) + Kp·e + Ki·∫e dt + Kd·de/dt      (PID only when the line is seen)
 ```
 
-with `Kp = 160`, `Ki = 2`, `Kd = 14`. These were retuned when the physics model changed: the motors'
+with `Kp = 240`, `Ki = 2`, `Kd = 22` (Full map + IR), and Double IR uses its own `kDoubleIrKp = 160`, `kDoubleIrKd = 14`. The Full map + IR gains were retuned when the yaw inertia changed (section 13): the motors'
 speed loss means the dead-reckoned position falls behind the real one, so the sensors have to correct
 more. Normal PID has its own gain schedule (section 5.1).
 
@@ -511,10 +511,10 @@ why `LineFollower.ino` refuses to build this mode.
 
 ## 6. The simulator
 
-The simulator is in `sim/`. It runs the **same** `LineController` as the firmware, unchanged. What it
+The simulator is in `sim/`. It runs the **same** `Controller` as the firmware, unchanged. What it
 adds is a model of the physical robot and of the world.
 
-### 6.1 The plant: `World::actuate()`
+### 6.1 The plant: `worldActuate()`
 
 The "real" robot is `PlantParams kRealRobot`. It is a physics model: the forces on the robot are computed
 each 2 ms tick, and the robot's motion comes from those forces.
@@ -522,7 +522,7 @@ each 2 ms tick, and the robot's motion comes from those forces.
 | Parameter | Value | Meaning |
 |---|---|---|
 | `mass` | 0.30 kg | Whole robot. Sets the weight, and so the grip. |
-| `yawInertia` | 5e-4 kg m² | Resistance to turning on the spot. |
+| `yawInertia` | 2.80e-4 kg m² (`kBodyYawInertia` in `body.h`) | Resistance to turning on the spot. Computed from the part list in `cad/make_cad.py`, so the simulator and the drawings agree. |
 | `wheelRadius` | 0.02 m | Sets the wheel's speed in metres per second. |
 | `friction` | μ = 0.6 | Tyre-to-tape friction coefficient. |
 | `rollingResistance` | c_rr = 0.03 | Rolling loss, a force of c_rr·m·g. |
@@ -564,7 +564,7 @@ The controller is never told any of these values. The motion is still computed f
 firmware's open-loop speed assumption is wrong on purpose: at 0.25 m/s, the simulated robot runs about 6%
 slow, and the sim's robot slips and slides in ways the controller cannot see.
 
-### 6.2 The sensors: `World::sense()`
+### 6.2 The sensors: `worldSense()`
 
 For each sensor the simulator finds the **nearest point on the true centre line** and the distance
 `d` to it. The reading is:
@@ -579,7 +579,7 @@ The nearest point is found by searching a window of 40 samples either side of th
 That keeps the search cheap at 500 Hz and works because the robot only moves a few millimetres per
 tick.
 
-### 6.3 Ground truth and outcomes: `World::judge()`
+### 6.3 Ground truth and outcomes: `worldJudge()`
 
 The simulator knows the true position, so it can decide what really happened:
 
@@ -594,11 +594,11 @@ means the line is to the robot's left.
 
 ### 6.4 The loop
 
-`World::tick()` runs one control step: sense, then the controller, then actuate, then judge. The step
+`tick()` runs one control step: sense, then the controller, then actuate, then judge. The step
 is 2 ms (500 Hz). `advance(seconds)` runs as many steps as fit, so the browser can run at 1×, 4× or 16×.
 `runToEnd()` runs headless, which the comparison table uses.
 
-`World::start()` builds the centre line from the map by integrating the curvature in 1 cm steps, and
+`worldStart()` builds the centre line from the map by integrating the curvature in 1 cm steps, and
 builds the plan. The random generator is a simple linear congruential generator, seeded per run, so
 every run is repeatable.
 
@@ -728,13 +728,13 @@ To extend:
   structs with braces.
 - **`enum class`.** `Mode`, `RunStatus` and `Outcome` are scoped enumerations, so their values cannot be
   confused with integers or with each other.
-- **Classes without constructors.** `Track`, `RacingPlan`, `LineController` and `World` use an explicit
-  `init`/`begin`/`start` method rather than a constructor. The WebAssembly build has no startup code, so
+- **Structs and functions.** `Track`, `RacingPlan`, `Controller` and `World` are plain structs. Each has an
+  explicit `trackInit`, `planBuild`, `controllerBegin` or `worldStart` function rather than a constructor. The WebAssembly build has no startup code, so
   global objects must not need constructors.
 - **Static storage, no heap.** Everything is a fixed-size array or a member. There is no `new`, no
   `std::vector`, no `std::string`. That suits both the Arduino's small RAM and WebAssembly's lack of a heap
   allocator in this build.
-- **`const` references and pointers.** Controllers get `const Track*` and `const RacingPlan*`, so they can read
+- **`const` references and pointers.** The controller functions get `const Track*` and `const RacingPlan*`, so they can read
   the map and plan but not change them.
 - **`switch` on enums** with a fall-through return at the end, so every mode is handled.
 - **Namespaces.** `config`, `mlite`, `sim` group related constants and helpers, which avoids name clashes with
@@ -787,6 +787,8 @@ the real world.
 | Item | Value in the project | Where | How it could differ on real hardware |
 |---|---|---|---|
 | Robot mass | 0.30 kg | `sim/world.h` | Set by estimate. Weight sets the grip and the rolling loss, so a different mass changes the slip and the slide. |
+| Yaw inertia | 2.80e-4 kg m² | `firmware/LineFollower/body.h` | Computed from assumed part masses, not weighed. Sets how fast the robot turns on the spot. Changing it changed the best steering gains, so the Full map + IR gains were retuned. |
+| Full map + IR gains | Kp 240, Kd 22 | `config.h` | Chosen from a sweep of Kp 100 to 280 and Kd 10 to 26 over 240 seeded runs. Every setting from Kp 200 up finished all runs. The gains were 160 and 14 before the inertia change. |
 | Tyre friction μ | 0.6 | `sim/world.h` | A plausible value for rubber on a mat. Real tape and tyres vary widely, and this decides when the wheels spin and the robot slides. |
 | Rolling resistance | c_rr = 0.03 | `sim/world.h` | Typical for small wheels. Depends on the floor and the wheel. |
 | Motor stall force | 4 N per wheel | `sim/world.h` | Chosen so the motors can spin the wheels on hard starts. Not measured. Real gearmotors have a torque curve, not a straight line. |

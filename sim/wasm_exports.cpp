@@ -66,69 +66,69 @@ __attribute__((export_name("plant_value"))) float plant_value(int which) {
   return 0.0f;
 }
 
-__attribute__((export_name("run_wheel_actual_left"))) float run_wheel_actual_left() { return g_world.actualWheelLeft(); }
-__attribute__((export_name("run_wheel_actual_right"))) float run_wheel_actual_right() { return g_world.actualWheelRight(); }
-__attribute__((export_name("run_slip_left"))) float run_slip_left() { return g_world.slipLeft(); }
-__attribute__((export_name("run_slip_right"))) float run_slip_right() { return g_world.slipRight(); }
-__attribute__((export_name("run_body_speed"))) float run_body_speed() { return g_world.bodySpeed(); }
-__attribute__((export_name("run_slide_speed"))) float run_slide_speed() { return g_world.slideSpeed(); }
+__attribute__((export_name("run_wheel_actual_left"))) float run_wheel_actual_left() { return g_world.wL; }
+__attribute__((export_name("run_wheel_actual_right"))) float run_wheel_actual_right() { return g_world.wR; }
+__attribute__((export_name("run_slip_left"))) float run_slip_left() { return g_world.slipL; }
+__attribute__((export_name("run_slip_right"))) float run_slip_right() { return g_world.slipR; }
+__attribute__((export_name("run_body_speed"))) float run_body_speed() { return g_world.vx; }
+__attribute__((export_name("run_slide_speed"))) float run_slide_speed() { return g_world.vy; }
 
 __attribute__((export_name("run_start"))) int run_start(int map, int mode, float pidSpeed) {
-  return g_world.start((uint8_t)map, modeFrom(mode), pidSpeed) ? 1 : 0;
+  return worldStart(&g_world, (uint8_t)map, modeFrom(mode), pidSpeed) ? 1 : 0;
 }
-__attribute__((export_name("run_advance"))) void run_advance(float seconds) { g_world.advance(seconds); }
-__attribute__((export_name("run_outcome"))) int run_outcome() { return (int)g_world.outcome(); }
-__attribute__((export_name("run_time"))) float run_time() { return g_world.time(); }
-__attribute__((export_name("run_lap_time"))) float run_lap_time() { return g_world.lapTime(); }
-__attribute__((export_name("run_progress"))) float run_progress() { return g_world.progress(); }
-__attribute__((export_name("run_true_offset"))) float run_true_offset() { return g_world.trueOffset(); }
-__attribute__((export_name("run_estimated_offset"))) float run_estimated_offset() { return g_world.estimatedOffset(); }
-__attribute__((export_name("run_estimated_progress"))) float run_estimated_progress() { return g_world.estimatedProgress(); }
-__attribute__((export_name("run_line_seen"))) int run_line_seen() { return g_world.lineSeen() ? 1 : 0; }
-__attribute__((export_name("run_wheel_left"))) float run_wheel_left() { return g_world.wheelLeft(); }
-__attribute__((export_name("run_wheel_right"))) float run_wheel_right() { return g_world.wheelRight(); }
-__attribute__((export_name("run_pose_x"))) float run_pose_x() { return g_world.poseX(); }
-__attribute__((export_name("run_pose_y"))) float run_pose_y() { return g_world.poseY(); }
-__attribute__((export_name("run_pose_heading"))) float run_pose_heading() { return g_world.poseHeading(); }
-__attribute__((export_name("run_track_length"))) float run_track_length() { return g_world.trackLength(); }
-__attribute__((export_name("run_plan_lap"))) float run_plan_lap() { return g_world.planLapTime(); }
+__attribute__((export_name("run_advance"))) void run_advance(float seconds) { worldAdvance(&g_world, seconds); }
+__attribute__((export_name("run_outcome"))) int run_outcome() { return (int)g_world.outcome; }
+__attribute__((export_name("run_time"))) float run_time() { return g_world.time; }
+__attribute__((export_name("run_lap_time"))) float run_lap_time() { return g_world.lapTime; }
+__attribute__((export_name("run_progress"))) float run_progress() { return worldProgress(&g_world); }
+__attribute__((export_name("run_true_offset"))) float run_true_offset() { return g_world.trueOffset; }
+__attribute__((export_name("run_estimated_offset"))) float run_estimated_offset() { return g_world.ctrl.lastOffset; }
+__attribute__((export_name("run_estimated_progress"))) float run_estimated_progress() { return g_world.ctrl.s; }
+__attribute__((export_name("run_line_seen"))) int run_line_seen() { return g_world.ctrl.seen ? 1 : 0; }
+__attribute__((export_name("run_wheel_left"))) float run_wheel_left() { return g_world.cmdLeft; }
+__attribute__((export_name("run_wheel_right"))) float run_wheel_right() { return g_world.cmdRight; }
+__attribute__((export_name("run_pose_x"))) float run_pose_x() { return g_world.x; }
+__attribute__((export_name("run_pose_y"))) float run_pose_y() { return g_world.y; }
+__attribute__((export_name("run_pose_heading"))) float run_pose_heading() { return g_world.th; }
+__attribute__((export_name("run_track_length"))) float run_track_length() { return g_world.track.length; }
+__attribute__((export_name("run_plan_lap"))) float run_plan_lap() { return g_world.plan.lapTime; }
 
-__attribute__((export_name("run_centre_count"))) int run_centre_count() { return g_world.centreCount(); }
+__attribute__((export_name("run_centre_count"))) int run_centre_count() { return g_world.centreCount; }
 __attribute__((export_name("run_centre"))) float* run_centre() {
-  const CentrePoint* pts = g_world.centre();
-  for (uint16_t i = 0; i < g_world.centreCount(); ++i) {
-    g_centre[i * 5 + 0] = pts[i].x;
-    g_centre[i * 5 + 1] = pts[i].y;
-    g_centre[i * 5 + 2] = pts[i].curvature;
-    g_centre[i * 5 + 3] = g_world.planSpeedAt(pts[i].s);
-    g_centre[i * 5 + 4] = pts[i].line ? 1.0f : 0.0f;
+  for (uint16_t i = 0; i < g_world.centreCount; ++i) {
+    const CentrePoint& p = g_world.centre[i];
+    g_centre[i * 5 + 0] = p.x;
+    g_centre[i * 5 + 1] = p.y;
+    g_centre[i * 5 + 2] = p.curvature;
+    g_centre[i * 5 + 3] = worldPlanSpeedAt(&g_world, p.s);
+    g_centre[i * 5 + 4] = p.line ? 1.0f : 0.0f;
   }
   return g_centre;
 }
 
 __attribute__((export_name("run_sensors"))) float* run_sensors() {
   for (uint8_t i = 0; i < 2 * config::kSensorCount; ++i) {
-    g_sensors[i * 3 + 0] = g_world.sensorValue(i);
-    g_sensors[i * 3 + 1] = g_world.sensorX(i);
-    g_sensors[i * 3 + 2] = g_world.sensorY(i);
+    g_sensors[i * 3 + 0] = g_world.sensors[i];
+    g_sensors[i * 3 + 1] = g_world.sensorX[i];
+    g_sensors[i * 3 + 2] = g_world.sensorY[i];
   }
   return g_sensors;
 }
 
-__attribute__((export_name("run_estimated_curvature"))) float run_estimated_curvature() { return g_world.estimatedCurvature(); }
-__attribute__((export_name("run_true_curvature"))) float run_true_curvature() { return g_world.trueCurvature(); }
+__attribute__((export_name("run_estimated_curvature"))) float run_estimated_curvature() { return g_world.ctrl.kappa; }
+__attribute__((export_name("run_true_curvature"))) float run_true_curvature() { return worldTrueCurvature(&g_world); }
 
-__attribute__((export_name("run_trail_count"))) int run_trail_count() { return g_world.trailCount(); }
-__attribute__((export_name("run_trail"))) const float* run_trail() { return g_world.trailXY(); }
+__attribute__((export_name("run_trail_count"))) int run_trail_count() { return g_world.trailCount; }
+__attribute__((export_name("run_trail"))) const float* run_trail() { return g_world.trail; }
 
 __attribute__((export_name("headless_lap"))) float headless_lap(int map, int mode, float pidSpeed) {
-  if (!g_world.start((uint8_t)map, modeFrom(mode), pidSpeed)) {
+  if (!worldStart(&g_world, (uint8_t)map, modeFrom(mode), pidSpeed)) {
     g_headlessOutcome = (int)Outcome::Stopped;
     return -1.0f;
   }
-  g_world.runToEnd();
-  g_headlessOutcome = (int)g_world.outcome();
-  return g_world.outcome() == Outcome::Finished ? g_world.lapTime() : -1.0f;
+  worldRunToEnd(&g_world);
+  g_headlessOutcome = (int)g_world.outcome;
+  return g_world.outcome == Outcome::Finished ? g_world.lapTime : -1.0f;
 }
 __attribute__((export_name("headless_outcome"))) int headless_outcome() { return g_headlessOutcome; }
 

@@ -35,23 +35,23 @@ simulated robot is a physics model (mass, friction, rolling loss, motor stall fo
 
 | Map | plan | Normal PID (0.25 m/s) | Full map (blind) | Full map + IR | Double IR |
 |---|---|---|---|---|---|
-| Warm-Up Oval | 6.06 | 23.31 | derailed | 7.20 | 12.05 |
-| Chicane | 3.74 | 12.08 | derailed | 4.28 | 6.08 |
-| Hairpin Alley | 5.18 | 16.27 | derailed | 5.47 | 7.50 |
-| Dashed Line | 3.57 | 13.32 | derailed | 4.29 | 6.90 |
-| Zig-Zag | 3.99 | 10.93 | derailed | 4.17 | 5.03 |
-| Sweepers | 5.58 | 24.09 | derailed | 6.68 | 13.15 |
+| Warm-Up Oval | 6.06 | 23.27 | derailed | 7.11 | 12.04 |
+| Chicane | 3.74 | 12.03 | derailed | 4.26 | 6.07 |
+| Hairpin Alley | 5.18 | 16.24 | derailed | 5.44 | 7.45 |
+| Dashed Line | 3.57 | 13.25 | derailed | 4.27 | 6.90 |
+| Zig-Zag | 3.99 | 10.90 | derailed | 4.17 | 4.99 |
+| Sweepers | 5.58 | 24.08 | derailed | 6.62 | 13.15 |
 
 Robustness, from the tests (`tests/test_core.cpp`):
 
 - Full map + IR finishes every map on the default run, and 240 of 240 seeded runs (40 noise seeds per map).
   Its gains were retuned when the physics model changed, so the earlier figure of 0 failures no longer applies.
-- Normal PID completes every map on the default run, and 239 of 240 seeded runs (40 per map) at the default
-  speed. Dashed Line is the one run that does not finish (39 of 40). Its steering gains scale up with its base speed, and it slows down as its steering effort and line
+- Normal PID completes every map on the default run, and 237 of 240 seeded runs (40 per map) at the default
+  speed. Dashed Line is the map that fails (37 of 40). Its steering gains scale up with its base speed, and it slows down as its steering effort and line
   offset grow (`kPidGain*`, `kPidSlowdown*` and `kPidOffsetSlowdownHigh` in `config.h`). The slider sweep from
   0.20 to 0.90 m/s is not produced by the current export tool, so it is not claimed here.
 - Double IR finishes every map on the default run and 240 of 240 seeded runs (40 per map). Its curvature
-  estimate is within a median of 6% to 16% on the curved parts of each map. Its speed is capped at 0.40 m/s
+  estimate is within a median of 4% to 11% on the curved parts of each map. Its speed is capped at 0.40 m/s
   because the front row sees a bend only 4 cm ahead. Above about 0.5 m/s, it fails. The radius term only
   changes the speed below a radius of about 10 cm; `docs/PROJECT.md` section 5.4 has the data.
 - Full map (blind) finishes 0 of 240 seeded runs and none on the default run (`build/site/results.json`,
@@ -104,7 +104,7 @@ in Settings → Pages → Deploy from a branch → `gh-pages`, `/ (root)`.
 
 ## Build and test
 
-Requires `g++` (C++11), `clang++` with the `wasm32` target and `wasm-ld`, and `python3`.
+Requires `g++` (C++11), `python3`, and either `clang++` with `wasm-ld` or `pip install ziglang` (used when clang is missing).
 
 ```sh
 scripts/build.sh
@@ -142,4 +142,4 @@ simulated robot (a hardware-in-the-loop check), and then rebuilds `web/line_foll
 - **3D simulator.** The page draws the map and robot in 3D on a plain 2D canvas (flat polygons, no WebGL and no shaders). Cameras: 3D orbit, Top (orthographic) and Follow. The robot's size comes from `config.h`.
 - **CAD and drawings.** `python3 cad/make_cad.py` writes `cad/line_follower_robot.stl` and six engineering sheets to `docs/drawings/`: orthographic views, yaw inertia, grip and slip, wheel encoders, gaps and dashed lines, and timestamps. The board on top of the model is a dummy line follower card for practice.
 - **Presentation.** `deck/line_follower_blueprint.pptx` (built by `deck/build_deck.js`) explains the whole plan in plain language.
-- **Known gap.** The inertia sheet computes 2.8e-4 kg m2 from assumed part masses, while the simulator uses 5e-4. Weigh the real parts and rerun the script to reconcile them.
+- **Yaw inertia.** The simulator and the inertia sheet use one value, 2.80e-4 kg m², computed from the part list in `cad/make_cad.py` and written to `firmware/LineFollower/body.h`. The part masses are assumed, not weighed. Weigh the real parts, edit the list, and rerun the script.

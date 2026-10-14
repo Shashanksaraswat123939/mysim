@@ -14,20 +14,38 @@ constexpr uint32_t kTelemetryPeriodMs = 100;
 
 static Track g_track;
 static RacingPlan g_plan;
-static LineController g_controller;
+static Controller g_controller;
 static bool g_running = false;
 static uint32_t g_lastMicros = 0;
 static uint32_t g_lastTelemetry = 0;
 
-static void printRunInfo() {
-  const MapInfo& map = mapInfo(kSelectedMap);
-  Serial.print(F("Map: "));
-  Serial.println(map.name);
-  Serial.print(F("Mode: "));
-  Serial.println(modeName(kSelectedMode));
-  Serial.print(F("Planned lap: "));
-  Serial.print(g_plan.idealLapTime(), 2);
-  Serial.println(F(" s"));
+static void startRun() {
+  controllerBegin(&g_controller, kSelectedMode, &g_track, &g_plan, defaultTuning());
+  g_running = true;
+  g_lastMicros = micros();
+  g_lastTelemetry = millis();
+  digitalWrite(kPinLed, HIGH);
+  Serial.println(F("Go"));
+}
+
+static void stopRun(const Command& cmd) {
+  stopWheels();
+  g_running = false;
+  digitalWrite(kPinLed, LOW);
+  Serial.println(cmd.status == RunStatus::Finished ? F("Finished") : F("Gave up: line lost"));
+}
+
+static void printTelemetry(const Command& cmd) {
+  Serial.print(F("s="));
+  Serial.print(g_controller.s, 2);
+  Serial.print(F(" line="));
+  Serial.print(g_controller.seen ? F("yes") : F("no "));
+  Serial.print(F(" offset_mm="));
+  Serial.print(g_controller.lastOffset * 1000.0f, 1);
+  Serial.print(F(" L="));
+  Serial.print(cmd.left, 2);
+  Serial.print(F(" R="));
+  Serial.println(cmd.right, 2);
 }
 
 void setup() {
@@ -35,16 +53,23 @@ void setup() {
   hardwareInit();
 
   const MapInfo& map = mapInfo(kSelectedMap);
-  g_track.init(map.segments, map.count);
-  if (!g_plan.build(g_track)) {
+  trackInit(&g_track, map.segments, map.count);
+  if (!planBuild(&g_plan, &g_track)) {
     Serial.println(F("Map is too long for the planner buffer"));
     while (true) {
       digitalWrite(kPinLed, !digitalRead(kPinLed));
       delay(100);
     }
   }
-  g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning());
-  printRunInfo();
+  controllerBegin(&g_controller, kSelectedMode, &g_track, &g_plan, defaultTuning());
+
+  Serial.print(F("Map: "));
+  Serial.println(map.name);
+  Serial.print(F("Mode: "));
+  Serial.println(modeName(kSelectedMode));
+  Serial.print(F("Planned lap: "));
+  Serial.print(g_plan.lapTime, 2);
+  Serial.println(F(" s"));
 
   Serial.println(F("Calibrating: sensor bar across the line, spinning for 2 s"));
   calibrateSensors();
@@ -53,14 +78,7 @@ void setup() {
 
 void loop() {
   if (!g_running) {
-    if (buttonPressed()) {
-      g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning());
-      g_running = true;
-      g_lastMicros = micros();
-      g_lastTelemetry = millis();
-      digitalWrite(kPinLed, HIGH);
-      Serial.println(F("Go"));
-    }
+    if (buttonPressed()) startRun();
     return;
   }
 
@@ -72,28 +90,16 @@ void loop() {
 
   float sensors[config::kSensorCount];
   readSensors(sensors);
-  const Command cmd = g_controller.update(sensors, dt);
+  const Command cmd = controllerUpdate(&g_controller, sensors, dt);
 
   if (cmd.status != RunStatus::Driving) {
-    stopWheels();
-    g_running = false;
-    digitalWrite(kPinLed, LOW);
-    Serial.println(cmd.status == RunStatus::Finished ? F("Finished") : F("Gave up: line lost"));
+    stopRun(cmd);
     return;
   }
   driveWheels(cmd.left, cmd.right);
 
   if (millis() - g_lastTelemetry >= kTelemetryPeriodMs) {
     g_lastTelemetry = millis();
-    Serial.print(F("s="));
-    Serial.print(g_controller.progress(), 2);
-    Serial.print(F(" line="));
-    Serial.print(g_controller.lineSeen() ? F("yes") : F("no "));
-    Serial.print(F(" offset_mm="));
-    Serial.print(g_controller.lineOffset() * 1000.0f, 1);
-    Serial.print(F(" L="));
-    Serial.print(cmd.left, 2);
-    Serial.print(F(" R="));
-    Serial.println(cmd.right, 2);
+    printTelemetry(cmd);
   }
 }

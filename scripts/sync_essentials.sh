@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
-# Copies the C++ and Arduino files that run the robot into essentials/, a flat folder for reading.
-#   scripts/sync_essentials.sh          regenerate essentials/
-#   scripts/sync_essentials.sh --check  fail if essentials/ is out of date (used by scripts/build.sh)
-# Edit the sources, never the copies.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 FILES=(
-  firmware/LineFollower/LineFollower.ino   # Arduino setup() and loop()
-  firmware/LineFollower/config.h           # geometry, limits, tuning
-  firmware/LineFollower/mathlite.h         # sin, cos, sqrt without a C library
-  firmware/LineFollower/track.h            # a map: straights, arcs, gaps
+  firmware/LineFollower/LineFollower.ino
+  firmware/LineFollower/config.h
+  firmware/LineFollower/body.h
+  firmware/LineFollower/mathlite.h
+  firmware/LineFollower/track.h
   firmware/LineFollower/track.cpp
-  firmware/LineFollower/maps.h             # the map catalogue
+  firmware/LineFollower/maps.h
   firmware/LineFollower/maps.cpp
-  firmware/LineFollower/planner.h          # racing speed profile
+  firmware/LineFollower/planner.h
   firmware/LineFollower/planner.cpp
-  firmware/LineFollower/line_controller.h  # the three control modes
+  firmware/LineFollower/line_controller.h
   firmware/LineFollower/line_controller.cpp
-  firmware/LineFollower/hardware.h         # Arduino pins, sensors, motors
+  firmware/LineFollower/hardware.h
   firmware/LineFollower/hardware.cpp
-  sim/world.h                              # the simulated robot
+  sim/world.h
   sim/world.cpp
-  sim/wasm_exports.cpp                     # the functions the web page calls
+  sim/wasm_exports.cpp
 )
 
 if [ "${1:-}" = "--check" ]; then

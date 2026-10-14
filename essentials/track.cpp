@@ -1,26 +1,17 @@
 #include "track.h"
 
-void Track::init(const Segment* segments, uint8_t count) {
-  segs_ = segments;
-  count_ = count;
-  length_ = 0.0f;
-  for (uint8_t i = 0; i < count_; ++i) length_ += segs_[i].length;
+void trackInit(Track* t, const Segment* segs, uint8_t count) {
+  t->segs = segs;
+  t->count = count;
+  t->length = 0.0f;
+  for (uint8_t i = 0; i < count; ++i) t->length += segs[i].length;
 }
 
-float Track::curvatureAt(float s) const {
+float trackCurvatureAt(const Track* t, float s) {
   float start = 0.0f;
-  for (uint8_t i = 0; i < count_; ++i) {
-    if (s < start + segs_[i].length) return segs_[i].curvature;
-    start += segs_[i].length;
+  for (uint8_t i = 0; i < t->count; ++i) {
+    if (s < start + t->segs[i].length) return t->segs[i].curvature;
+    start += t->segs[i].length;
   }
   return 0.0f;
-}
-
-bool Track::lineAt(float s) const {
-  float start = 0.0f;
-  for (uint8_t i = 0; i < count_; ++i) {
-    if (s < start + segs_[i].length) return segs_[i].line;
-    start += segs_[i].length;
-  }
-  return false;
 }

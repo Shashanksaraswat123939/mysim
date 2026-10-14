@@ -1,9 +1,7 @@
 #include "world.h"
 #include "mathlite.h"
 
-namespace {
-
-float tanhApprox(float z) {
+static float tanhApprox(float z) {
   if (z > 4.97f) return 1.0f;
   if (z < -4.97f) return -1.0f;
   const float z2 = z * z;
@@ -12,55 +10,27 @@ float tanhApprox(float z) {
   return num / den;
 }
 
+static void recordTrail(World* w) {
+  if (w->trailCount >= sim::kTrailCap) return;
+  w->trail[w->trailCount * 2] = w->x;
+  w->trail[w->trailCount * 2 + 1] = w->y;
+  ++w->trailCount;
 }
 
-bool World::start(uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams& plant, uint32_t seed) {
-  const MapInfo& map = mapInfo(mapIndex);
-  track_.init(map.segments, map.count);
-  if (!plan_.build(track_)) return false;
-  buildCentre();
-
-  Tuning tuning = defaultTuning();
-  tuning.pidSpeed = pidSpeed;
-  ctrl_.begin(mode, &track_, &plan_, tuning);
-
-  plant_ = plant;
-  x_ = plant.startX;
-  y_ = plant.startY;
-  th_ = plant.startHeading;
-  vx_ = 0.0f;
-  vy_ = 0.0f;
-  om_ = 0.0f;
-  wL_ = 0.0f;
-  wR_ = 0.0f;
-  slipL_ = 0.0f;
-  slipR_ = 0.0f;
-  fxL_ = 0.0f;
-  fxR_ = 0.0f;
-  cmdLeft_ = 0.0f;
-  cmdRight_ = 0.0f;
-  robotIdx_ = 0;
-  trueOffset_ = 0.0f;
-  trueS_ = 0.0f;
-  derailTimer_ = 0.0f;
-  time_ = 0.0f;
-  lapTime_ = 0.0f;
-  pending_ = 0.0f;
-  trailTimer_ = 0.0f;
-  trailCount_ = 0;
-  outcome_ = Outcome::Running;
-  rng_ = seed;
-  sense();
-  recordTrail();
-  return true;
+static void updateTrail(World* w, float dt) {
+  w->trailTimer += dt;
+  if (w->trailTimer >= sim::kTrailInterval) {
+    w->trailTimer = 0.0f;
+    recordTrail(w);
+  }
 }
 
-void World::buildCentre() {
+static void buildCentre(World* w) {
   float x = 0.0f, y = 0.0f, th = 0.0f, s = 0.0f;
   uint16_t n = 0;
-  centre_[n++] = {x, y, th, track_.segment(0).curvature, s, track_.segment(0).line};
-  for (uint8_t i = 0; i < track_.segmentCount(); ++i) {
-    const Segment& seg = track_.segment(i);
+  w->centre[n++] = {x, y, th, w->track.segs[0].curvature, s, w->track.segs[0].line};
+  for (uint8_t i = 0; i < w->track.count; ++i) {
+    const Segment& seg = w->track.segs[i];
     uint16_t steps = (uint16_t)(seg.length / sim::kCentreStep + 0.999f);
     if (steps < 1) steps = 1;
     const float ds = seg.length / steps;
@@ -70,21 +40,21 @@ void World::buildCentre() {
       y += ds * mlite::sin(mid);
       th += seg.curvature * ds;
       s += ds;
-      centre_[n++] = {x, y, th, seg.curvature, s, seg.line};
+      w->centre[n++] = {x, y, th, seg.curvature, s, seg.line};
     }
   }
-  centreCount_ = n;
+  w->centreCount = n;
 }
 
-uint16_t World::nearest(float x, float y, uint16_t hint) const {
+static uint16_t nearest(const World* w, float x, float y, uint16_t hint) {
   const uint16_t lo = hint > sim::kSearchWindow ? hint - sim::kSearchWindow : 0;
   uint16_t hi = hint + sim::kSearchWindow;
-  if (hi >= centreCount_) hi = centreCount_ - 1;
+  if (hi >= w->centreCount) hi = w->centreCount - 1;
   uint16_t best = lo;
   float bestD2 = 1e30f;
   for (uint16_t i = lo; i <= hi; ++i) {
-    const float dx = centre_[i].x - x;
-    const float dy = centre_[i].y - y;
+    const float dx = w->centre[i].x - x;
+    const float dy = w->centre[i].y - y;
     const float d2 = dx * dx + dy * dy;
     if (d2 < bestD2) {
       bestD2 = d2;
@@ -94,48 +64,23 @@ uint16_t World::nearest(float x, float y, uint16_t hint) const {
   return best;
 }
 
-float World::uniform() {
-  rng_ = rng_ * 1664525u + 1013904223u;
-  return (float)(rng_ >> 8) * (1.0f / 16777216.0f);
+static float uniform(World* w) {
+  w->rng = w->rng * 1664525u + 1013904223u;
+  return (float)(w->rng >> 8) * (1.0f / 16777216.0f);
 }
 
-float World::gauss() {
-  return (uniform() + uniform() + uniform() + uniform() - 2.0f) * 1.7320508f;
+static float gauss(World* w) {
+  return (uniform(w) + uniform(w) + uniform(w) + uniform(w) - 2.0f) * 1.7320508f;
 }
 
-void World::sense() {
-  const float c = mlite::cos(th_);
-  const float s = mlite::sin(th_);
-  for (uint8_t row = 0; row < 2; ++row) {
-    const float fwd = row == 0 ? config::kSensorForward : -config::kRearRowDistance;
-    for (uint8_t i = 0; i < config::kSensorCount; ++i) {
-      const uint8_t k = (uint8_t)(row * config::kSensorCount + i);
-      const float lat = ((config::kSensorCount - 1) * 0.5f - i) * config::kSensorSpacing;
-      const float px = x_ + fwd * c - lat * s;
-      const float py = y_ + fwd * s + lat * c;
-      sensorX_[k] = px;
-      sensorY_[k] = py;
-
-      const uint16_t j = nearest(px, py, robotIdx_);
-      const CentrePoint& p = centre_[j];
-      const float dx = px - p.x;
-      const float dy = py - p.y;
-      const float d = mlite::sqrt(dx * dx + dy * dy);
-      float reflect = 0.0f;
-      if (p.line) reflect = mlite::clamp(1.0f - (d - 0.5f * config::kLineWidth) / 0.006f, 0.0f, 1.0f);
-      sensors_[k] = mlite::clamp(reflect + plant_.sensorNoise * gauss(), 0.0f, 1.0f);
-    }
-  }
-}
-
-float World::wheelForce(float duty, float surfaceSpeed, float groundSpeed, float normalForce,
-                        float& wheelSpeed, float& slip) const {
-  const float stall = plant_.stallForce;
+static float wheelForce(const PlantParams& plant, float duty, float surfaceSpeed, float groundSpeed,
+                        float normalForce, float& wheelSpeed, float& slip) {
+  const float stall = plant.stallForce;
   const float a = duty * stall;
-  const float b = stall / plant_.freeSpeed;
-  const float muN = plant_.friction * normalForce;
+  const float b = stall / plant.freeSpeed;
+  const float muN = plant.friction * normalForce;
   const float ref = mlite::fmax(mlite::fabs(groundSpeed), sim::kRefSpeed);
-  const float limit = (plant_.freeSpeed + mlite::fabs(groundSpeed)) * 3.0f;
+  const float limit = (plant.freeSpeed + mlite::fabs(groundSpeed)) * 3.0f;
 
   float w = surfaceSpeed;
   for (int it = 0; it < 6; ++it) {
@@ -151,130 +96,189 @@ float World::wheelForce(float duty, float surfaceSpeed, float groundSpeed, float
   return mlite::clamp(a - b * w, -muN, muN);
 }
 
-void World::actuate(float leftMps, float rightMps, float dt) {
-  cmdLeft_ = leftMps;
-  cmdRight_ = rightMps;
+static void tick(World* w) {
+  const float dt = config::kControlPeriod;
+  worldSense(w);
+  controllerSetEncoders(&w->ctrl, w->wL, w->wR);
+  const Command cmd = controllerUpdate(&w->ctrl, w->sensors, dt, w->sensors + config::kSensorCount);
+  worldActuate(w, cmd.left, cmd.right, dt);
+  worldJudge(w, cmd.status, dt);
+}
 
-  const float mass = plant_.mass;
+bool worldStart(World* w, uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams& plant, uint32_t seed) {
+  const MapInfo& map = mapInfo(mapIndex);
+  trackInit(&w->track, map.segments, map.count);
+  if (!planBuild(&w->plan, &w->track)) return false;
+  buildCentre(w);
+
+  Tuning tuning = defaultTuning();
+  tuning.pidSpeed = pidSpeed;
+  controllerBegin(&w->ctrl, mode, &w->track, &w->plan, tuning);
+
+  w->plant = plant;
+  w->x = plant.startX;
+  w->y = plant.startY;
+  w->th = plant.startHeading;
+  w->vx = 0.0f;
+  w->vy = 0.0f;
+  w->om = 0.0f;
+  w->wL = 0.0f;
+  w->wR = 0.0f;
+  w->slipL = 0.0f;
+  w->slipR = 0.0f;
+  w->fxL = 0.0f;
+  w->fxR = 0.0f;
+  w->cmdLeft = 0.0f;
+  w->cmdRight = 0.0f;
+  w->robotIdx = 0;
+  w->trueOffset = 0.0f;
+  w->trueS = 0.0f;
+  w->derailTimer = 0.0f;
+  w->time = 0.0f;
+  w->lapTime = 0.0f;
+  w->pending = 0.0f;
+  w->trailTimer = 0.0f;
+  w->trailCount = 0;
+  w->outcome = Outcome::Running;
+  w->rng = seed;
+  worldSense(w);
+  recordTrail(w);
+  return true;
+}
+
+void worldSense(World* w) {
+  const float c = mlite::cos(w->th);
+  const float s = mlite::sin(w->th);
+  for (uint8_t row = 0; row < 2; ++row) {
+    const float fwd = row == 0 ? config::kSensorForward : -config::kRearRowDistance;
+    for (uint8_t i = 0; i < config::kSensorCount; ++i) {
+      const uint8_t k = (uint8_t)(row * config::kSensorCount + i);
+      const float lat = ((config::kSensorCount - 1) * 0.5f - i) * config::kSensorSpacing;
+      const float px = w->x + fwd * c - lat * s;
+      const float py = w->y + fwd * s + lat * c;
+      w->sensorX[k] = px;
+      w->sensorY[k] = py;
+
+      const uint16_t j = nearest(w, px, py, w->robotIdx);
+      const CentrePoint& p = w->centre[j];
+      const float dx = px - p.x;
+      const float dy = py - p.y;
+      const float d = mlite::sqrt(dx * dx + dy * dy);
+      float reflect = 0.0f;
+      if (p.line) reflect = mlite::clamp(1.0f - (d - 0.5f * config::kLineWidth) / 0.006f, 0.0f, 1.0f);
+      w->sensors[k] = mlite::clamp(reflect + w->plant.sensorNoise * gauss(w), 0.0f, 1.0f);
+    }
+  }
+}
+
+void worldActuate(World* w, float leftMps, float rightMps, float dt) {
+  w->cmdLeft = leftMps;
+  w->cmdRight = rightMps;
+
+  const float mass = w->plant.mass;
   const float g = sim::kGravity;
   const float normal = 0.5f * mass * g;
   const float half = 0.5f * config::kWheelBase;
 
-  const float dutyL = mlite::clamp(leftMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.leftGain;
-  const float dutyR = mlite::clamp(rightMps / plant_.freeSpeed, -1.0f, 1.0f) * plant_.rightGain;
+  const float dutyL = mlite::clamp(leftMps / w->plant.freeSpeed, -1.0f, 1.0f) * w->plant.leftGain;
+  const float dutyR = mlite::clamp(rightMps / w->plant.freeSpeed, -1.0f, 1.0f) * w->plant.rightGain;
 
-  const float uL = vx_ - om_ * half;
-  const float uR = vx_ + om_ * half;
-  fxL_ = wheelForce(dutyL, wL_, uL, normal, wL_, slipL_);
-  fxR_ = wheelForce(dutyR, wR_, uR, normal, wR_, slipR_);
+  const float uL = w->vx - w->om * half;
+  const float uR = w->vx + w->om * half;
+  w->fxL = wheelForce(w->plant, dutyL, w->wL, uL, normal, w->wL, w->slipL);
+  w->fxR = wheelForce(w->plant, dutyR, w->wR, uR, normal, w->wR, w->slipR);
 
-  const float refV = mlite::fmax(mlite::fabs(vx_), sim::kRefSpeed);
-  const float fyDes = -plant_.cornerStiffness * (vy_ / refV);
-  const float muN = plant_.friction * normal;
-  const float fyLim = mlite::sqrt(mlite::fmax(0.0f, muN * muN - fxL_ * fxL_));
-  const float fyLimR = mlite::sqrt(mlite::fmax(0.0f, muN * muN - fxR_ * fxR_));
+  const float refV = mlite::fmax(mlite::fabs(w->vx), sim::kRefSpeed);
+  const float fyDes = -w->plant.cornerStiffness * (w->vy / refV);
+  const float muN = w->plant.friction * normal;
+  const float fyLim = mlite::sqrt(mlite::fmax(0.0f, muN * muN - w->fxL * w->fxL));
+  const float fyLimR = mlite::sqrt(mlite::fmax(0.0f, muN * muN - w->fxR * w->fxR));
   const float fyL = mlite::clamp(fyDes, -fyLim, fyLim);
   const float fyR = mlite::clamp(fyDes, -fyLimR, fyLimR);
 
-  const float fRoll = plant_.rollingResistance * mass * g * tanhApprox(vx_ / sim::kRollingSpeed);
+  const float fRoll = w->plant.rollingResistance * mass * g * tanhApprox(w->vx / sim::kRollingSpeed);
 
-  const float mEff = mass + 2.0f * sim::kWheelInertia / (plant_.wheelRadius * plant_.wheelRadius);
-  const float fxTot = fxL_ + fxR_ - fRoll;
+  const float mEff = mass + 2.0f * sim::kWheelInertia / (w->plant.wheelRadius * w->plant.wheelRadius);
+  const float fxTot = w->fxL + w->fxR - fRoll;
   const float fyTot = fyL + fyR;
-  const float torque = half * (fxR_ - fxL_);
-  const float ax = fxTot / mEff + vy_ * om_;
-  const float ay = fyTot / mEff - vx_ * om_;
-  const float alphaZ = torque / plant_.yawInertia;
+  const float torque = half * (w->fxR - w->fxL);
+  const float ax = fxTot / mEff + w->vy * w->om;
+  const float ay = fyTot / mEff - w->vx * w->om;
+  const float alphaZ = torque / w->plant.yawInertia;
 
-  vx_ += ax * dt;
-  vy_ += ay * dt;
-  om_ += alphaZ * dt;
-  th_ += om_ * dt;
-  x_ += (vx_ * mlite::cos(th_) - vy_ * mlite::sin(th_)) * dt;
-  y_ += (vx_ * mlite::sin(th_) + vy_ * mlite::cos(th_)) * dt;
+  w->vx += ax * dt;
+  w->vy += ay * dt;
+  w->om += alphaZ * dt;
+  w->th += w->om * dt;
+  w->x += (w->vx * mlite::cos(w->th) - w->vy * mlite::sin(w->th)) * dt;
+  w->y += (w->vx * mlite::sin(w->th) + w->vy * mlite::cos(w->th)) * dt;
 
-  robotIdx_ = nearest(x_, y_, robotIdx_);
-  const CentrePoint& p = centre_[robotIdx_];
-  const float dx = x_ - p.x;
-  const float dy = y_ - p.y;
-  trueOffset_ = mlite::sin(p.heading) * dx - mlite::cos(p.heading) * dy;
-  trueS_ = p.s;
-  time_ += dt;
-  updateTrail(dt);
+  w->robotIdx = nearest(w, w->x, w->y, w->robotIdx);
+  const CentrePoint& p = w->centre[w->robotIdx];
+  const float dx = w->x - p.x;
+  const float dy = w->y - p.y;
+  w->trueOffset = mlite::sin(p.heading) * dx - mlite::cos(p.heading) * dy;
+  w->trueS = p.s;
+  w->time += dt;
+  updateTrail(w, dt);
 }
 
-void World::placeRobot(float x, float y, float heading) {
-  x_ = x;
-  y_ = y;
-  th_ = heading;
-  vx_ = 0.0f;
-  vy_ = 0.0f;
-  om_ = 0.0f;
-  wL_ = 0.0f;
-  wR_ = 0.0f;
-  slipL_ = 0.0f;
-  slipR_ = 0.0f;
-  robotIdx_ = 0;
-  sense();
+void worldPlaceRobot(World* w, float x, float y, float heading) {
+  w->x = x;
+  w->y = y;
+  w->th = heading;
+  w->vx = 0.0f;
+  w->vy = 0.0f;
+  w->om = 0.0f;
+  w->wL = 0.0f;
+  w->wR = 0.0f;
+  w->slipL = 0.0f;
+  w->slipR = 0.0f;
+  w->robotIdx = 0;
+  worldSense(w);
 }
 
-void World::judge(RunStatus controllerStatus, float dt) {
-  if (outcome_ != Outcome::Running) return;
-  if (trueS_ >= track_.length() - sim::kFinishSlack) {
-    outcome_ = Outcome::Finished;
-    lapTime_ = time_;
+void worldJudge(World* w, RunStatus controllerStatus, float dt) {
+  if (w->outcome != Outcome::Running) return;
+  if (w->trueS >= w->track.length - sim::kFinishSlack) {
+    w->outcome = Outcome::Finished;
+    w->lapTime = w->time;
     return;
   }
-  derailTimer_ = mlite::fabs(trueOffset_) > sim::kDerailOffset ? derailTimer_ + dt : 0.0f;
-  if (derailTimer_ > sim::kDerailTime) {
-    outcome_ = Outcome::Derailed;
+  w->derailTimer = mlite::fabs(w->trueOffset) > sim::kDerailOffset ? w->derailTimer + dt : 0.0f;
+  if (w->derailTimer > sim::kDerailTime) {
+    w->outcome = Outcome::Derailed;
   } else if (controllerStatus != RunStatus::Driving) {
-    outcome_ = Outcome::Stopped;
-  } else if (time_ >= sim::kRunLimit) {
-    outcome_ = Outcome::TimedOut;
+    w->outcome = Outcome::Stopped;
+  } else if (w->time >= sim::kRunLimit) {
+    w->outcome = Outcome::TimedOut;
   }
 }
 
-void World::tick() {
-  const float dt = config::kControlPeriod;
-  sense();
-  ctrl_.setWheelEncoders(wL_, wR_);
-  const Command cmd = ctrl_.update(sensors_, dt, sensors_ + config::kSensorCount);
-  actuate(cmd.left, cmd.right, dt);
-  judge(cmd.status, dt);
-}
-
-void World::updateTrail(float dt) {
-  trailTimer_ += dt;
-  if (trailTimer_ >= sim::kTrailInterval) {
-    trailTimer_ = 0.0f;
-    recordTrail();
+void worldAdvance(World* w, float seconds) {
+  w->pending += seconds;
+  while (w->pending >= config::kControlPeriod && w->outcome == Outcome::Running) {
+    tick(w);
+    w->pending -= config::kControlPeriod;
   }
+  if (w->outcome != Outcome::Running) w->pending = 0.0f;
 }
 
-void World::recordTrail() {
-  if (trailCount_ >= sim::kTrailCap) return;
-  trail_[trailCount_ * 2] = x_;
-  trail_[trailCount_ * 2 + 1] = y_;
-  ++trailCount_;
+void worldRunToEnd(World* w) {
+  while (w->outcome == Outcome::Running) tick(w);
 }
 
-void World::advance(float seconds) {
-  pending_ += seconds;
-  while (pending_ >= config::kControlPeriod && outcome_ == Outcome::Running) {
-    tick();
-    pending_ -= config::kControlPeriod;
-  }
-  if (outcome_ != Outcome::Running) pending_ = 0.0f;
+float worldProgress(const World* w) {
+  const float len = w->track.length;
+  return len > 0.0f ? mlite::clamp(w->trueS / len, 0.0f, 1.0f) : 0.0f;
 }
 
-void World::runToEnd() {
-  while (outcome_ == Outcome::Running) tick();
+float worldTrueCurvature(const World* w) {
+  return w->centre[w->robotIdx].curvature;
 }
 
-float World::progress() const {
-  const float len = track_.length();
-  return len > 0.0f ? mlite::clamp(trueS_ / len, 0.0f, 1.0f) : 0.0f;
+float worldPlanSpeedAt(const World* w, float s) {
+  return planSpeedAt(&w->plan, s);
 }
 
 const char* outcomeName(Outcome outcome) {

@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <initializer_list>
 #include "world.h"
 
 namespace {
@@ -14,23 +13,23 @@ int main() {
   printf("  \"seeds\": %u,\n", (unsigned)kSeeds);
   printf("  \"maps\": [\n");
   for (uint8_t m = 0; m < kMapCount; ++m) {
-    g_world.start(m, Mode::PidOnly, config::kPidSpeed, kRealRobot, kDefaultSeed);
-    printf("    {\"name\": \"%s\", \"planLap\": %.2f, \"modes\": [\n", mapInfo(m).name, g_world.planLapTime());
+    worldStart(&g_world, m, Mode::PidOnly, config::kPidSpeed, kRealRobot, kDefaultSeed);
+    printf("    {\"name\": \"%s\", \"planLap\": %.2f, \"modes\": [\n", mapInfo(m).name, g_world.plan.lapTime);
     for (uint8_t md = 0; md < kModeCount; ++md) {
-      g_world.start(m, (Mode)md, config::kPidSpeed, kRealRobot, kDefaultSeed);
-      g_world.runToEnd();
-      const bool defaultDone = g_world.outcome() == Outcome::Finished;
-      const float defaultLap = defaultDone ? g_world.lapTime() : -1.0f;
-      const char* defaultOutcome = outcomeShort(g_world.outcome());
+      worldStart(&g_world, m, (Mode)md, config::kPidSpeed, kRealRobot, kDefaultSeed);
+      worldRunToEnd(&g_world);
+      const bool defaultDone = g_world.outcome == Outcome::Finished;
+      const float defaultLap = defaultDone ? g_world.lapTime : -1.0f;
+      const char* defaultOutcome = outcomeShort(g_world.outcome);
 
       uint32_t finished = 0;
       double lapSum = 0.0;
       for (uint32_t s = 1; s <= kSeeds; ++s) {
-        g_world.start(m, (Mode)md, config::kPidSpeed, kRealRobot, s * 7919u);
-        g_world.runToEnd();
-        if (g_world.outcome() == Outcome::Finished) {
+        worldStart(&g_world, m, (Mode)md, config::kPidSpeed, kRealRobot, s * 7919u);
+        worldRunToEnd(&g_world);
+        if (g_world.outcome == Outcome::Finished) {
           ++finished;
-          lapSum += g_world.lapTime();
+          lapSum += g_world.lapTime;
         }
       }
       const float meanLap = finished ? (float)(lapSum / finished) : -1.0f;

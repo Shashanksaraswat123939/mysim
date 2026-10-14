@@ -56,11 +56,11 @@ static void testTrackGeometry() {
   for (uint8_t i = 0; i < kMapCount; ++i) {
     Track t;
     const MapInfo& m = mapInfo(i);
-    t.init(m.segments, m.count);
+    trackInit(&t, m.segments, m.count);
     RacingPlan plan;
-    CHECK(plan.build(t));
-    printf("  %-16s length %.2f m, planned lap %.2f s\n", m.name, t.length(), plan.idealLapTime());
-    CHECK(t.length() > 1.0f && t.length() < 8.0f);
+    CHECK(planBuild(&plan, &t));
+    printf("  %-16s length %.2f m, planned lap %.2f s\n", m.name, t.length, plan.lapTime);
+    CHECK(t.length > 1.0f && t.length < 8.0f);
   }
   const Segment left = LeftArc(90, 0.3f);
   const Segment right = RightArc(90, 0.3f);
@@ -72,21 +72,21 @@ static void testPlanLimits() {
   for (uint8_t i = 0; i < kMapCount; ++i) {
     Track t;
     const MapInfo& m = mapInfo(i);
-    t.init(m.segments, m.count);
+    trackInit(&t, m.segments, m.count);
     RacingPlan plan;
-    CHECK(plan.build(t));
-    const float ds = plan.spacing();
+    CHECK(planBuild(&plan, &t));
+    const float ds = plan.spacing;
     const float tol = 1e-3f;
-    const float L = t.length();
-    CHECK(fabsf(plan.speedAt(0.0f) - config::kLaunchSpeed) < tol);
-    CHECK(fabsf(plan.speedAt(L) - config::kLaunchSpeed) < tol);
+    const float L = t.length;
+    CHECK(fabsf(planSpeedAt(&plan, 0.0f) - config::kLaunchSpeed) < tol);
+    CHECK(fabsf(planSpeedAt(&plan, L) - config::kLaunchSpeed) < tol);
     for (float s0 = 0.0f; s0 + ds <= L; s0 += ds) {
       const float s1 = s0 + ds;
-      const float kMax = mlite::fmax(fabsf(t.curvatureAt(s0)), fabsf(t.curvatureAt(s1)));
-      const float vMid = plan.speedAt(s0 + 0.5f * ds);
+      const float kMax = mlite::fmax(fabsf(trackCurvatureAt(&t, s0)), fabsf(trackCurvatureAt(&t, s1)));
+      const float vMid = planSpeedAt(&plan, s0 + 0.5f * ds);
       if (kMax > 1e-3f) CHECK(vMid * vMid * kMax <= config::kPlanLatAccel + 1e-3f);
-      const float v0 = plan.speedAt(s0);
-      const float v1 = plan.speedAt(s1);
+      const float v0 = planSpeedAt(&plan, s0);
+      const float v1 = planSpeedAt(&plan, s1);
       CHECK(v1 * v1 <= v0 * v0 + 2.0f * config::kPlanAccel * ds + 1e-3f);
       CHECK(v0 * v0 <= v1 * v1 + 2.0f * config::kPlanBrake * ds + 1e-3f);
       if (g_failures > 20) return;
@@ -94,52 +94,52 @@ static void testPlanLimits() {
   }
   static const Segment straight[] = {Straight(1.0f)};
   Track t;
-  t.init(straight, 1);
+  trackInit(&t, straight, 1);
   RacingPlan plan;
-  CHECK(plan.build(t));
-  CHECK(fabsf(plan.speedAt(0.5f) - config::kPlanVMax) < 1e-3f);
+  CHECK(planBuild(&plan, &t));
+  CHECK(fabsf(planSpeedAt(&plan, 0.5f) - config::kPlanVMax) < 1e-3f);
 }
 
 static void testControllers() {
   static const Segment straight[] = {Straight(2.0f)};
   Track t;
-  t.init(straight, 1);
+  trackInit(&t, straight, 1);
   RacingPlan plan;
-  plan.build(t);
+  planBuild(&plan, &t);
 
   const float centred[5] = {0, 0, 1, 0, 0};
   const float allWhite[5] = {0, 0, 0, 0, 0};
   Tuning tuning = defaultTuning();
   Command c = {0.0f, 0.0f, RunStatus::Driving};
 
-  LineController blind;
-  blind.begin(Mode::FullMapBlind, &t, &plan, tuning);
-  c = blind.update(centred, config::kControlPeriod);
+  Controller blind;
+  controllerBegin(&blind, Mode::FullMapBlind, &t, &plan, tuning);
+  c = controllerUpdate(&blind, centred, config::kControlPeriod);
   CHECK(c.status == RunStatus::Driving);
   CHECK(fabsf(c.left - c.right) < 1e-6f);
   CHECK(fabsf(c.left - config::kLaunchSpeed) < 1e-3f);
 
-  for (int i = 0; i < 200; ++i) c = blind.update(allWhite, config::kControlPeriod);
+  for (int i = 0; i < 200; ++i) c = controllerUpdate(&blind, allWhite, config::kControlPeriod);
   CHECK(c.status == RunStatus::Driving);
 
-  LineController ir;
-  ir.begin(Mode::FullMapIr, &t, &plan, tuning);
+  Controller ir;
+  controllerBegin(&ir, Mode::FullMapIr, &t, &plan, tuning);
   for (int i = 0; i < 1000 && c.status == RunStatus::Driving; ++i) {
-    c = ir.update(allWhite, config::kControlPeriod);
+    c = controllerUpdate(&ir, allWhite, config::kControlPeriod);
   }
   CHECK(c.status == RunStatus::GaveUp);
 
   const float leftOff[5] = {1, 1, 0, 0, 0};
-  LineController pid;
-  pid.begin(Mode::PidOnly, &t, &plan, tuning);
-  c = pid.update(leftOff, config::kControlPeriod);
+  Controller pid;
+  controllerBegin(&pid, Mode::PidOnly, &t, &plan, tuning);
+  c = controllerUpdate(&pid, leftOff, config::kControlPeriod);
   CHECK(c.right > c.left);
 
-  LineController finisher;
-  finisher.begin(Mode::FullMapBlind, &t, &plan, tuning);
+  Controller finisher;
+  controllerBegin(&finisher, Mode::FullMapBlind, &t, &plan, tuning);
   c.status = RunStatus::Driving;
   for (int i = 0; i < 100000 && c.status == RunStatus::Driving; ++i) {
-    c = finisher.update(centred, config::kControlPeriod);
+    c = controllerUpdate(&finisher, centred, config::kControlPeriod);
   }
   CHECK(c.status == RunStatus::Finished);
 }
@@ -150,11 +150,11 @@ struct SimResult {
 };
 
 static SimResult runSim(uint8_t map, Mode mode, const PlantParams& plant, uint32_t seed) {
-  g_world.start(map, mode, config::kPidSpeed, plant, seed);
-  g_world.runToEnd();
+  worldStart(&g_world, map, mode, config::kPidSpeed, plant, seed);
+  worldRunToEnd(&g_world);
   SimResult r;
-  r.finished = g_world.outcome() == Outcome::Finished;
-  r.lap = r.finished ? g_world.lapTime() : -1.0f;
+  r.finished = g_world.outcome == Outcome::Finished;
+  r.lap = r.finished ? g_world.lapTime : -1.0f;
   return r;
 }
 
@@ -183,14 +183,14 @@ static void testSimulation() {
 }
 
 static float slideOnArc(float radius, float speed) {
-  g_world.start(0, Mode::FullMapBlind, config::kPidSpeed, kRealRobot, 1u);
+  worldStart(&g_world, 0, Mode::FullMapBlind, config::kPidSpeed, kRealRobot, 1u);
   const float om = speed / radius;
   const float left = speed - om * 0.5f * config::kWheelBase;
   const float right = speed + om * 0.5f * config::kWheelBase;
   float worst = 0.0f;
   for (int i = 0; i < 1000; ++i) {
-    g_world.actuate(left, right, config::kControlPeriod);
-    if (i > 500) worst = fmaxf(worst, fabsf(g_world.slideSpeed()));
+    worldActuate(&g_world, left, right, config::kControlPeriod);
+    if (i > 500) worst = fmaxf(worst, fabsf(g_world.vy));
   }
   return worst;
 }
@@ -211,15 +211,15 @@ static void testDoubleIr() {
   CHECK(fabsf(lineHeading(yF, yR, a, a) - theta) < 1e-5f);
 
   for (uint8_t m = 0; m < kMapCount; ++m) {
-    g_world.start(m, Mode::DoubleIr, config::kPidSpeed, kRealRobot, 0x2545F491u);
+    worldStart(&g_world, m, Mode::DoubleIr, config::kPidSpeed, kRealRobot, 0x2545F491u);
     static float rel[4000];
     int n = 0;
-    while (g_world.outcome() == Outcome::Running) {
-      g_world.advance(config::kControlPeriod);
-      const float kt = g_world.trueCurvature();
-      if (fabsf(kt) > 0.5f && n < 4000) rel[n++] = fabsf(g_world.estimatedCurvature() - kt) / fabsf(kt);
+    while (g_world.outcome == Outcome::Running) {
+      worldAdvance(&g_world, config::kControlPeriod);
+      const float kt = worldTrueCurvature(&g_world);
+      if (fabsf(kt) > 0.5f && n < 4000) rel[n++] = fabsf(g_world.ctrl.kappa - kt) / fabsf(kt);
     }
-    CHECK(g_world.outcome() == Outcome::Finished);
+    CHECK(g_world.outcome == Outcome::Finished);
     for (int i = 1; i < n; ++i) {
       const float x = rel[i];
       int j = i - 1;
@@ -228,7 +228,7 @@ static void testDoubleIr() {
     }
     if (n > 0) CHECK(rel[n / 2] < 0.25f);
     printf("  %-16s Double IR finished %s, median curvature error %.0f%%\n", mapInfo(m).name,
-           g_world.outcome() == Outcome::Finished ? "yes" : "no", n ? 100.0f * rel[n / 2] : 0.0f);
+           g_world.outcome == Outcome::Finished ? "yes" : "no", n ? 100.0f * rel[n / 2] : 0.0f);
   }
 }
 

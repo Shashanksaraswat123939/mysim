@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Publishes build/site (the page and the C++ results) to the gh-pages branch of origin.
-# Run scripts/build.sh first. GitHub Pages then serves the branch; enable it once in
-# Settings -> Pages -> Deploy from a branch -> gh-pages, / (root).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="$ROOT/build/site"

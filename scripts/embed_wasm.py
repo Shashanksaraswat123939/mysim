@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""Embed the compiled simulator and the C++ results into the page.
-
-Usage: embed_wasm.py TEMPLATE.html SIM.wasm RESULTS.json OUTPUT.html
-
-The output is one self-contained file that opens straight from disk, with no server.
-"""
 import base64
 import json
 import pathlib
@@ -13,14 +6,13 @@ import sys
 WASM_PLACEHOLDER = "__WASM_BASE64__"
 RESULTS_PLACEHOLDER = "__RESULTS_JSON__"
 
-
 def main() -> int:
     if len(sys.argv) != 5:
-        print(__doc__.strip(), file=sys.stderr)
+        print("usage: embed_wasm.py TEMPLATE.html SIM.wasm RESULTS.json OUTPUT.html", file=sys.stderr)
         return 2
     template = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
     wasm = pathlib.Path(sys.argv[2]).read_bytes()
-    results = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))  # must be valid JSON
+    results = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
     for placeholder in (WASM_PLACEHOLDER, RESULTS_PLACEHOLDER):
         if template.count(placeholder) != 1:
             print(f"expected exactly one {placeholder} in {sys.argv[1]}", file=sys.stderr)
@@ -31,7 +23,6 @@ def main() -> int:
     pathlib.Path(sys.argv[4]).write_text(html, encoding="utf-8")
     print(f"wrote {sys.argv[4]} ({len(wasm)} bytes of WebAssembly, {len(results['maps'])} maps of results)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

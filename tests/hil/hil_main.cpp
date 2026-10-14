@@ -27,11 +27,11 @@ float wheelMps(uint8_t in1, uint8_t in2, uint8_t pwm) {
 void stepRobot() {
   g_timeUs += kStepUs;
   const float dt = kStepUs * 1e-6f;
-  g_world.sense();
+  worldSense(&g_world);
   const float left = wheelMps(kPinLeftIn1, kPinLeftIn2, kPinLeftPwm);
   const float right = wheelMps(kPinRightIn1, kPinRightIn2, kPinRightPwm);
-  g_world.actuate(left, right, dt);
-  g_world.judge(RunStatus::Driving, dt);
+  worldActuate(&g_world, left, right, dt);
+  worldJudge(&g_world, RunStatus::Driving, dt);
 }
 
 }
@@ -47,7 +47,7 @@ int digitalRead(uint8_t pin) {
 }
 int analogRead(uint8_t pin) {
   const int index = pin - A0;
-  return 900 - (int)(800.0f * g_world.sensorValue((uint8_t)index));
+  return 900 - (int)(800.0f * g_world.sensors[index]);
 }
 void analogWrite(uint8_t pin, int value) { g_pwm[pin] = value; }
 unsigned long millis() { return g_timeUs / 1000u; }
@@ -61,20 +61,20 @@ int main() {
   calibrationSpot.startX = -0.04f;
   calibrationSpot.startY = 0.0f;
   calibrationSpot.startHeading = 0.0f;
-  g_world.start(0, Mode::FullMapIr, config::kPidSpeed, calibrationSpot);
+  worldStart(&g_world, 0, Mode::FullMapIr, config::kPidSpeed, calibrationSpot);
 
   setup();
 
-  g_world.placeRobot(kRealRobot.startX, kRealRobot.startY, kRealRobot.startHeading);
+  worldPlaceRobot(&g_world, kRealRobot.startX, kRealRobot.startY, kRealRobot.startHeading);
   g_buttonAt = g_timeUs + 500000u;
 
-  while (g_world.outcome() == Outcome::Running && g_timeUs < kBudgetUs) {
+  while (g_world.outcome == Outcome::Running && g_timeUs < kBudgetUs) {
     stepRobot();
     loop();
   }
 
-  const float lap = g_world.outcome() == Outcome::Finished ? (g_timeUs - g_buttonAt) * 1e-6f : -1.0f;
+  const float lap = g_world.outcome == Outcome::Finished ? (g_timeUs - g_buttonAt) * 1e-6f : -1.0f;
   printf("HIL result: outcome=%d lap=%.2f s plan=%.2f s true-offset=%+.4f m\n",
-         (int)g_world.outcome(), lap, g_world.planLapTime(), g_world.trueOffset());
-  return g_world.outcome() == Outcome::Finished ? 0 : 1;
+         (int)g_world.outcome, lap, g_world.plan.lapTime, g_world.trueOffset);
+  return g_world.outcome == Outcome::Finished ? 0 : 1;
 }

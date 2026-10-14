@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""Builds the practice CAD model and the engineering drawings from the firmware's own numbers.
-
-Reads firmware/LineFollower/config.h and sim/world.h, then writes:
-  cad/line_follower_robot.stl      the robot as a solid model (millimetres)
-  docs/drawings/*.png              orthographic views and calculation sheets
-
-The robot is a dummy model for practice. The board on top is a placeholder line follower card.
-Part masses used for the inertia sheet are assumptions that add up to the simulator's 0.30 kg.
-"""
 import math, os, re, struct, sys
 import matplotlib
 matplotlib.use("Agg")
@@ -25,11 +15,13 @@ def cfg(name):
 G = {k: cfg(k) for k in ["kWheelBase", "kSensorCount", "kSensorSpacing", "kSensorForward", "kLineWidth",
      "kWheelRadius", "kWheelWidth", "kBodyLength", "kBodyHeight", "kBodyClearance", "kRearRowDistance",
      "kControlPeriod", "kLostTimeout", "kCurveTau", "kDoubleIrLatAccel", "kDoubleIrVMax"]}
+BODY_H = os.path.join(ROOT, "firmware", "LineFollower", "body.h")
+body_inertia = float(re.search(r"kBodyYawInertia = ([0-9.eE+-]+)f;", open(BODY_H).read()).group(1))
 w = open(os.path.join(ROOT, "sim/world.h")).read()
 tup = re.search(r"kRealRobot = \{(.*?)\};", w, re.S).group(1)
 names = ["mass", "yawInertia", "wheelRadius", "friction", "rollingResistance", "stallForce", "freeSpeed",
          "cornerStiffness", "leftGain", "rightGain", "sensorNoise", "startX", "startY", "startHeading"]
-vals = [t.strip().replace("config::kWheelRadius", str(G["kWheelRadius"])).rstrip("f") for t in tup.replace("\n", " ").split(",")]
+vals = [t.strip().replace("config::kWheelRadius", str(G["kWheelRadius"])).replace("kBodyYawInertia", repr(body_inertia)).rstrip("f") for t in tup.replace("\n", " ").split(",")]
 P = dict(zip(names, [float(v) for v in vals]))
 mm = lambda v: v * 1000.0
 
@@ -40,8 +32,6 @@ bw = wb - ww - 0.004
 zt = clr + bh
 barW = (n - 1) * sp + 0.012
 
-# ---------------------------------------------------------------- solid model
-# Each part: name, (x0,x1,y0,y1,z0,z1) in metres. Same list the web page draws.
 parts = [
     ("chassis", (-bl/2, bl/2, -bw/2, bw/2, clr, zt)),
     ("card", (-0.029, 0.029, -0.029, 0.029, zt, zt + 0.0016)),
@@ -89,14 +79,12 @@ def write_stl(path):
         f.write("endsolid line_follower_practice_model\n")
     return len(tris)
 
-# ---------------------------------------------------------------- drawing helpers
 INK, GRAY, LIGHT = "#111111", "#8a8a8a", "#d9d9d9"
 plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9, "axes.linewidth": 0.8})
 
 def sheet(title, number, size=(13.0, 6.2)):
     fig = plt.figure(figsize=size, dpi=170, facecolor="white")
     fig.add_artist(Rectangle((0.008, 0.012), 0.984, 0.976, fill=False, lw=1.4, ec=INK, transform=fig.transFigure))
-    # title block
     x0, y0, bw_, bh_ = 0.58, 0.012, 0.412, 0.085
     fig.add_artist(Rectangle((x0, y0), bw_, bh_, fill=False, lw=1.0, ec=INK, transform=fig.transFigure))
     fig.add_artist(Rectangle((x0 + 0.34, y0), bw_ - 0.34, bh_, fill=False, lw=0.8, ec=INK, transform=fig.transFigure))
@@ -134,33 +122,28 @@ def view_axes(fig, rect_, title):
     ax.set_title(title, fontsize=9, weight="bold", loc="left")
     return ax
 
-# ---------------------------------------------------------------- sheet 1: three views
 def draw_three_view():
     fig = sheet("Orthographic views", "1 of 6")
     L = 1000.0
-    # TOP: x forward is up the page, y left is left. plot (y, x) in mm.
     ax = view_axes(fig, [0.04, 0.15, 0.36, 0.78], "TOP VIEW")
     ax.set_xlim(-80, 80); ax.set_ylim(-62, 62)
-    for sgn in (1, -1):  # wheels
+    for sgn in (1, -1):
         rect(ax, mm(sgn*wb/2 - ww/2) if sgn > 0 else mm(sgn*wb/2 - ww/2), mm(sgn*wb/2 + ww/2), -mm(wr), mm(wr), fc="#bdbdbd")
     for nme, b in parts:
         x0, x1, y0, y1, z0, z1 = [mm(v) for v in b]
         fc = {"chassis": "white", "card": "#e0e0e0", "battery": "#bdbdbd", "mcu": "#777", "driver": "#999"}.get(nme, "#d0d0d0" if "board" in nme else "white")
         if nme.startswith("caster"): continue
         rect(ax, y0, y1, x0, x1, fc=fc, lw=0.9)
-    # sensors
     for xr in (fwd, -rear):
         for i in range(n):
             y = ((n - 1) / 2 - i) * sp
             ax.add_patch(Circle((mm(y), mm(xr)), 2.2, fc="black", ec="black"))
     centre_line(ax, (0, -64), (0, 64)); centre_line(ax, (-60, 0), (60, 0))
     dim(ax, (-mm(wb/2 + ww/2), -54), (mm(wb/2 + ww/2), -54), "%.0f overall width" % mm(wb + ww), off=0, fs=7.5)
-    # wheelbase
     dim(ax, (-mm(wb/2), -mm(wr)), (mm(wb/2), -mm(wr)), "%.0f wheelbase" % mm(wb), off=-12)
     dim(ax, (mm(wb/2 + ww/2) + 8, 0), (mm(wb/2 + ww/2) + 8, mm(fwd)), "%.0f front row to axle" % mm(fwd), horizontal=False, off=6)
     dim(ax, (mm(wb/2 + ww/2) + 8, 0), (mm(wb/2 + ww/2) + 8, -mm(rear)), "%.0f rear row to axle" % mm(rear), horizontal=False, off=6)
     ax.text(0, mm(fwd) + 6, "%d sensors at %.0f spacing" % (n, mm(sp)), fontsize=7.5, ha="center")
-    # FRONT: looking back from the front. y horizontal, z up.
     ax2 = view_axes(fig, [0.42, 0.52, 0.24, 0.41], "FRONT VIEW")
     ax2.set_xlim(-70, 70); ax2.set_ylim(-8, 52)
     ax2.plot([-70, 70], [0, 0], color=INK, lw=1.2)
@@ -174,7 +157,6 @@ def draw_three_view():
     dim(ax2, (mm(wb/2 + ww/2) + 6, 0), (mm(wb/2 + ww/2) + 6, mm(2*wr)), "%.0f wheel dia" % mm(2*wr), horizontal=False, off=8)
     top = mm(zt) + 12.6
     dim(ax2, (-mm(wb/2 + ww/2) - 4, 0), (-mm(wb/2 + ww/2) - 4, top), "%.1f overall height" % top, horizontal=False, off=-4)
-    # SIDE: x horizontal (forward right), z up
     ax3 = view_axes(fig, [0.42, 0.12, 0.24, 0.38], "SIDE VIEW")
     ax3.set_xlim(-60, 60); ax3.set_ylim(-12, 52)
     ax3.plot([-60, 60], [0, 0], color=INK, lw=1.2)
@@ -185,7 +167,6 @@ def draw_three_view():
     centre_line(ax3, (-56, mm(wr)), (56, mm(wr)))
     dim(ax3, (-mm(rear), -3), (mm(fwd), -3), "%.0f sensor to sensor" % mm(rear + fwd), off=-3.5, fs=7.5)
     dim(ax3, (-mm(bl/2), mm(zt) + 12), (mm(bl/2), mm(zt) + 12), "%.0f body" % mm(bl), off=2, fs=7.5)
-    # notes
     fig.text(0.70, 0.88, "NOTES", fontsize=9, weight="bold")
     for i, t in enumerate([
         "1  All sizes in millimetres.",
@@ -199,8 +180,7 @@ def draw_three_view():
         fig.text(0.70, 0.84 - i * 0.04, t, fontsize=8.5)
     fig.savefig(os.path.join(OUT, "01_orthographic_views.png")); plt.close(fig)
 
-# ---------------------------------------------------------------- sheet 2: inertia
-MASSES = [  # name, mass kg, x, y, size_x, size_y (m). Assumed values that add up to 0.30 kg.
+MASSES = [
     ("Chassis plate", 0.078, 0.0, 0.0, bl, bw),
     ("Line follower card", 0.018, 0.0, 0.0, 0.058, 0.058),
     ("Battery", 0.070, -0.015, 0.018, 0.018, 0.016),
@@ -239,10 +219,8 @@ def draw_inertia():
         ax.add_patch(Circle((mm(y), mm(x)), 1.6, fc=INK))
     ax.add_patch(Circle((mm(yc), mm(xc)), 3.4, fc="white", ec=INK, lw=1.2)); ax.plot([mm(yc)-5, mm(yc)+5], [mm(xc)]*2, color=INK, lw=0.8); ax.plot([mm(yc)]*2, [mm(xc)-5, mm(xc)+5], color=INK, lw=0.8)
     ax.annotate("centre of mass\n(%.1f, %.1f) mm" % (mm(xc), mm(yc)), (mm(yc), mm(xc)), (28, -42), fontsize=8, arrowprops=dict(arrowstyle="-", lw=0.6))
-    # radius of one wheel from the centre of mass
     ax.plot([mm(yc), mm(wb/2)], [mm(xc), 0], color=INK, lw=0.6, ls="--")
     ax.text(mm(wb/4), -4, "d", fontsize=8)
-    # table
     t = fig.add_axes([0.41, 0.13, 0.57, 0.78]); t.axis("off"); t.set_xlim(0, 1); t.set_ylim(0, 1)
     t.text(0, 1.0, "Method", fontsize=10, weight="bold", va="top")
     t.text(0, 0.94, "Treat each part as a small flat block. Spin about the vertical axis through the centre of mass.", fontsize=8.3, va="top")
@@ -260,12 +238,11 @@ def draw_inertia():
     t.plot([0, 1], [y + 0.02, y + 0.02], color=INK, lw=0.8)
     t.text(0, y - 0.02, "Total mass %.0f g" % (M*1000), fontsize=8.5, weight="bold")
     t.text(0.45, y - 0.02, r"$I_z=%.2f\times10^{-4}$ kg m²" % (I*1e4), fontsize=10.5, weight="bold")
-    fig.text(0.03, 0.062, "Simulator uses  I = %.1f×10⁻⁴ kg m²  (sim/world.h).  Calculated value is %.0f%% of that." % (P["yawInertia"]*1e4, 100*I/P["yawInertia"]), fontsize=8.6)
+    fig.text(0.03, 0.062, "The simulator uses this value. It is written to firmware/LineFollower/body.h by cad/make_cad.py.", fontsize=8.6)
     fig.text(0.03, 0.032, "Part masses are assumed, not weighed. Weigh the real parts and rerun cad/make_cad.py.", fontsize=8.1, color="#444")
     fig.savefig(os.path.join(OUT, "02_inertia.png")); plt.close(fig)
     return I
 
-# ---------------------------------------------------------------- sheet 3: slip
 def draw_slip():
     m, mu, g = P["mass"], P["friction"], 9.81
     N = m * g / 2
@@ -284,7 +261,6 @@ def draw_slip():
     for sp_ in ("top", "right"): ax.spines[sp_].set_visible(False)
     ax.grid(color=LIGHT, lw=0.5)
     ax.set_title("FORCE CURVE   F = mu N tanh(s / 0.2)", fontsize=9, weight="bold", loc="left")
-    # friction circle
     ax2 = view_axes(fig, [0.42, 0.20, 0.22, 0.60], "FRICTION CIRCLE (one wheel)")
     ax2.set_xlim(-1.4, 1.4); ax2.set_ylim(-1.4, 1.4)
     ax2.add_patch(Circle((0, 0), 1, fill=False, ec=INK, lw=1.2))
@@ -315,7 +291,6 @@ def draw_slip():
         t.text(0, 1.0 - i * 0.066, tx, fontsize=9.2 if b else 8.6, weight="bold" if b else "normal", va="top")
     fig.savefig(os.path.join(OUT, "03_slip.png")); plt.close(fig)
 
-# ---------------------------------------------------------------- sheet 4: encoders
 def draw_encoder():
     fig = sheet("Wheel encoders and turn rate", "4 of 6")
     ax = view_axes(fig, [0.03, 0.13, 0.30, 0.78], "ENCODER DISC (ILLUSTRATIVE, 20 SLOTS)")
@@ -360,7 +335,6 @@ def draw_encoder():
         t.text(0, 1.0 - i * 0.056, tx, fontsize=9.6 if b else 8.6, weight="bold" if b else "normal", va="top")
     fig.savefig(os.path.join(OUT, "04_encoders.png")); plt.close(fig)
 
-# ---------------------------------------------------------------- sheet 5: gaps
 def draw_gaps():
     fig = sheet("Dashed lines and gaps", "5 of 6")
     ax = fig.add_axes([0.04, 0.50, 0.92, 0.36]); ax.set_xlim(0, 1.0); ax.set_ylim(-0.1, 0.55); ax.axis("off")
@@ -375,7 +349,6 @@ def draw_gaps():
             dim(ax, (x, 0.235), (x + ln, 0.235), "gap %.2f m" % ln, off=0.1, fs=8)
         x += ln
     ax.text(0.22, 0.30, "tape 0.40 m", ha="center", fontsize=8); ax.text(0.68, 0.30, "tape 0.40 m", ha="center", fontsize=8)
-    # robot dots over gap
     ax.add_patch(Rectangle((0.37, 0.15), 0.07, 0.17, fc="none", ec=INK, lw=0.8, ls="--"))
     ax.text(0.405, 0.04, "robot sensor bar\nsees no tape", ha="center", fontsize=7.8)
     t = fig.add_axes([0.04, 0.10, 0.92, 0.34]); t.axis("off"); t.set_xlim(0, 1); t.set_ylim(0, 1)
@@ -395,7 +368,6 @@ def draw_gaps():
     t.text(0, 0.0, "The widest gap in the six maps is 0.10 m, so there is a large margin.", fontsize=8.8)
     fig.savefig(os.path.join(OUT, "05_gaps.png")); plt.close(fig)
 
-# ---------------------------------------------------------------- sheet 6: timing
 def draw_timing():
     fig = sheet("Timestamps and the control loop", "6 of 6")
     ax = fig.add_axes([0.22, 0.24, 0.72, 0.62])
@@ -429,5 +401,7 @@ def draw_timing():
 if __name__ == "__main__":
     k = write_stl(os.path.join(ROOT, "cad", "line_follower_robot.stl"))
     draw_three_view(); I = draw_inertia(); draw_slip(); draw_encoder(); draw_gaps(); draw_timing()
+    with open(BODY_H, "w") as f:
+        f.write("#pragma once\n\nconstexpr float kBodyYawInertia = %.6ef;\n" % I)
     M = sum(m for _, m, *_ in MASSES)
     print("stl triangles:", k, " mass %.0f g" % (M * 1000), " Iz %.2e kg m2 (sim %.1e)" % (I, P["yawInertia"]))

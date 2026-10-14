@@ -53,102 +53,39 @@ float lineHeading(float frontOffset, float rearOffset, float frontDist, float re
   return (frontOffset - rearOffset) / (frontDist + rearDist);
 }
 
-void LineController::begin(Mode mode, const Track* track, const RacingPlan* plan, const Tuning& tuning) {
-  mode_ = mode;
-  track_ = track;
-  plan_ = plan;
-  tuning_ = tuning;
-  s_ = 0.0f;
-  lostTime_ = 0.0f;
-  lastOffset_ = 0.0f;
-  integral_ = 0.0f;
-  prevError_ = 0.0f;
-  dFilter_ = 0.0f;
-  kappa_ = 0.0f;
-  theta_ = 0.0f;
-  thetaRate_ = 0.0f;
-  encL_ = 0.0f;
-  encR_ = 0.0f;
-  haveTheta_ = false;
-  speedCmd_ = config::kLaunchSpeed;
-  havePrev_ = false;
-  seen_ = false;
+void controllerBegin(Controller* c, Mode mode, const Track* track, const RacingPlan* plan, const Tuning& tuning) {
+  c->mode = mode;
+  c->track = track;
+  c->plan = plan;
+  c->tuning = tuning;
+  c->s = 0.0f;
+  c->lostTime = 0.0f;
+  c->lastOffset = 0.0f;
+  c->integral = 0.0f;
+  c->prevError = 0.0f;
+  c->dFilter = 0.0f;
+  c->kappa = 0.0f;
+  c->theta = 0.0f;
+  c->thetaRate = 0.0f;
+  c->encL = 0.0f;
+  c->encR = 0.0f;
+  c->haveTheta = false;
+  c->speedCmd = config::kLaunchSpeed;
+  c->havePrev = false;
+  c->seen = false;
 }
 
-float LineController::pid(float error, float dt, float kp, float kd) {
-  float derivative = 0.0f;
-  if (havePrev_) derivative = (error - prevError_) / dt;
-  const float alpha = dt / (config::kDerivativeTau + dt);
-  dFilter_ += alpha * (derivative - dFilter_);
-  prevError_ = error;
-  havePrev_ = true;
-
-  integral_ += error * dt;
-  const float ki = tuning_.ki > 0.0f ? tuning_.ki : 1.0f;
-  const float limit = config::kIntegralLimit / ki;
-  integral_ = mlite::clamp(integral_, -limit, limit);
-
-  return kp * error + tuning_.ki * integral_ + kd * dFilter_;
+void controllerSetEncoders(Controller* c, float leftMps, float rightMps) {
+  c->encL = leftMps;
+  c->encR = rightMps;
 }
 
-Command LineController::update(const float* sensors, float dt, const float* rearSensors) {
-  const LineEstimate est = estimateLine(sensors);
-  seen_ = est.seen;
-  if (est.seen) {
-    lostTime_ = 0.0f;
-    lastOffset_ = est.offset;
-  } else {
-    lostTime_ += dt;
-  }
+static Command stopped(RunStatus status) {
+  Command cmd = {0.0f, 0.0f, status};
+  return cmd;
+}
 
-  if (mode_ == Mode::DoubleIr) return doubleIr(est, rearSensors, dt);
-
-  float v = 0.0f;
-  float omega = 0.0f;
-
-  switch (mode_) {
-    case Mode::PidOnly: {
-      if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
-      const float blend = mlite::clamp((tuning_.pidSpeed - config::kPidGainSpeedLow) /
-                                           (config::kPidGainSpeedHigh - config::kPidGainSpeedLow),
-                                       0.0f, 1.0f);
-      const float kp = config::kPidKpLow + (config::kPidKpHigh - config::kPidKpLow) * blend;
-      const float kd = config::kPidKdLow + (config::kPidKdHigh - config::kPidKdLow) * blend;
-      const float slowdown = config::kPidSlowdownLow + (config::kPidSlowdownHigh - config::kPidSlowdownLow) * blend;
-      const float offset = est.seen ? est.offset : lastOffset_;
-      omega = pid(offset, dt, kp, kd);
-      v = tuning_.pidSpeed / (1.0f + slowdown * mlite::fabs(omega) +
-                              config::kPidOffsetSlowdownHigh * blend * mlite::fabs(offset));
-      break;
-    }
-    case Mode::FullMapBlind:
-    case Mode::FullMapIr: {
-      v = plan_->speedAt(s_);
-      if (v < config::kLaunchSpeed) v = config::kLaunchSpeed;
-      omega = v * track_->curvatureAt(s_);
-
-      if (mode_ == Mode::FullMapIr) {
-        if (lostTime_ > config::kLostTimeout) {
-          const RunStatus status = s_ >= track_->length() ? RunStatus::Finished : RunStatus::GaveUp;
-          return Command{0.0f, 0.0f, status};
-        }
-        if (est.seen) {
-          omega += pid(est.offset, dt, tuning_.kp, tuning_.kd);
-        } else {
-          havePrev_ = false;
-        }
-      }
-
-      s_ += v * dt;
-      if (mode_ == Mode::FullMapBlind && s_ >= track_->length()) {
-        return Command{0.0f, 0.0f, RunStatus::Finished};
-      }
-      break;
-    }
-    case Mode::DoubleIr:
-      break;
-  }
-
+static Command drive(float v, float omega) {
   const float half = 0.5f * config::kWheelBase;
   Command cmd;
   cmd.left = mlite::clamp(v - omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
@@ -157,46 +94,109 @@ Command LineController::update(const float* sensors, float dt, const float* rear
   return cmd;
 }
 
-Command LineController::doubleIr(const LineEstimate& front, const float* rearSensors, float dt) {
-  if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
+static float pidStep(Controller* c, float error, float dt, float kp, float kd) {
+  float derivative = 0.0f;
+  if (c->havePrev) derivative = (error - c->prevError) / dt;
+  const float alpha = dt / (config::kDerivativeTau + dt);
+  c->dFilter += alpha * (derivative - c->dFilter);
+  c->prevError = error;
+  c->havePrev = true;
 
-  if (rearSensors != nullptr && front.seen) {
-    const LineEstimate back = estimateLine(rearSensors);
-    if (back.seen) {
-      const float theta = lineHeading(front.offset, back.offset, config::kSensorForward, config::kRearRowDistance);
-      const float a = dt / (config::kCurveTau + dt);
-      if (!haveTheta_) {
-        theta_ = theta;
-        haveTheta_ = true;
-      } else {
-        const float prevTheta = theta_;
-        theta_ += a * (theta - theta_);
-        thetaRate_ += a * ((theta_ - prevTheta) / dt - thetaRate_);
-      }
-      const float turnRate = (encR_ - encL_) / config::kWheelBase;
-      const float v = mlite::fmax(speedCmd_, config::kLaunchSpeed);
-      kappa_ += a * ((thetaRate_ + turnRate) / v - kappa_);
+  c->integral += error * dt;
+  const float ki = c->tuning.ki > 0.0f ? c->tuning.ki : 1.0f;
+  const float limit = config::kIntegralLimit / ki;
+  c->integral = mlite::clamp(c->integral, -limit, limit);
+
+  return kp * error + c->tuning.ki * c->integral + kd * c->dFilter;
+}
+
+static Command pidOnlyStep(Controller* c, const LineEstimate& est, float dt) {
+  if (c->lostTime > config::kLostTimeout) return stopped(RunStatus::GaveUp);
+
+  const float blend = mlite::clamp((c->tuning.pidSpeed - config::kPidGainSpeedLow) /
+                                       (config::kPidGainSpeedHigh - config::kPidGainSpeedLow),
+                                   0.0f, 1.0f);
+  const float kp = config::kPidKpLow + (config::kPidKpHigh - config::kPidKpLow) * blend;
+  const float kd = config::kPidKdLow + (config::kPidKdHigh - config::kPidKdLow) * blend;
+  const float slowdown = config::kPidSlowdownLow + (config::kPidSlowdownHigh - config::kPidSlowdownLow) * blend;
+  const float offset = est.seen ? est.offset : c->lastOffset;
+  const float omega = pidStep(c, offset, dt, kp, kd);
+  const float v = c->tuning.pidSpeed / (1.0f + slowdown * mlite::fabs(omega) +
+                                        config::kPidOffsetSlowdownHigh * blend * mlite::fabs(offset));
+  return drive(v, omega);
+}
+
+static Command fullMapStep(Controller* c, const LineEstimate& est, float dt) {
+  float v = planSpeedAt(c->plan, c->s);
+  if (v < config::kLaunchSpeed) v = config::kLaunchSpeed;
+  float omega = v * trackCurvatureAt(c->track, c->s);
+
+  if (c->mode == Mode::FullMapIr) {
+    if (c->lostTime > config::kLostTimeout) {
+      const RunStatus status = c->s >= c->track->length ? RunStatus::Finished : RunStatus::GaveUp;
+      return stopped(status);
+    }
+    if (est.seen) {
+      omega += pidStep(c, est.offset, dt, c->tuning.kp, c->tuning.kd);
+    } else {
+      c->havePrev = false;
     }
   }
 
-  const float absK = mlite::fmax(mlite::fabs(kappa_), 1e-3f);
-  float target = mlite::sqrt(config::kDoubleIrLatAccel / absK);
-  if (target > config::kDoubleIrVMax) target = config::kDoubleIrVMax;
-  speedCmd_ = mlite::clamp(target, speedCmd_ - config::kPlanBrake * dt, speedCmd_ + config::kPlanAccel * dt);
-  if (speedCmd_ < config::kLaunchSpeed) speedCmd_ = config::kLaunchSpeed;
+  c->s += v * dt;
+  if (c->mode == Mode::FullMapBlind && c->s >= c->track->length) return stopped(RunStatus::Finished);
+  return drive(v, omega);
+}
 
-  float omega = speedCmd_ * kappa_;
-  if (front.seen) {
-    lastOffset_ = front.offset;
-    omega += pid(front.offset, dt, tuning_.kp, tuning_.kd);
-  } else {
-    havePrev_ = false;
+static Command doubleIrStep(Controller* c, const LineEstimate& front, const float* rear, float dt) {
+  if (c->lostTime > config::kLostTimeout) return stopped(RunStatus::GaveUp);
+
+  if (rear != nullptr && front.seen) {
+    const LineEstimate back = estimateLine(rear);
+    if (back.seen) {
+      const float theta = lineHeading(front.offset, back.offset, config::kSensorForward, config::kRearRowDistance);
+      const float a = dt / (config::kCurveTau + dt);
+      if (!c->haveTheta) {
+        c->theta = theta;
+        c->haveTheta = true;
+      } else {
+        const float prevTheta = c->theta;
+        c->theta += a * (theta - c->theta);
+        c->thetaRate += a * ((c->theta - prevTheta) / dt - c->thetaRate);
+      }
+      const float turnRate = (c->encR - c->encL) / config::kWheelBase;
+      const float v = mlite::fmax(c->speedCmd, config::kLaunchSpeed);
+      c->kappa += a * ((c->thetaRate + turnRate) / v - c->kappa);
+    }
   }
 
-  const float half = 0.5f * config::kWheelBase;
-  Command cmd;
-  cmd.left = mlite::clamp(speedCmd_ - omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
-  cmd.right = mlite::clamp(speedCmd_ + omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
-  cmd.status = RunStatus::Driving;
-  return cmd;
+  const float absK = mlite::fmax(mlite::fabs(c->kappa), 1e-3f);
+  float target = mlite::sqrt(config::kDoubleIrLatAccel / absK);
+  if (target > config::kDoubleIrVMax) target = config::kDoubleIrVMax;
+  c->speedCmd = mlite::clamp(target, c->speedCmd - config::kPlanBrake * dt, c->speedCmd + config::kPlanAccel * dt);
+  if (c->speedCmd < config::kLaunchSpeed) c->speedCmd = config::kLaunchSpeed;
+
+  float omega = c->speedCmd * c->kappa;
+  if (front.seen) {
+    c->lastOffset = front.offset;
+    omega += pidStep(c, front.offset, dt, config::kDoubleIrKp, config::kDoubleIrKd);
+  } else {
+    c->havePrev = false;
+  }
+  return drive(c->speedCmd, omega);
+}
+
+Command controllerUpdate(Controller* c, const float* sensors, float dt, const float* rearSensors) {
+  const LineEstimate est = estimateLine(sensors);
+  c->seen = est.seen;
+  if (est.seen) {
+    c->lostTime = 0.0f;
+    c->lastOffset = est.offset;
+  } else {
+    c->lostTime += dt;
+  }
+
+  if (c->mode == Mode::DoubleIr) return doubleIrStep(c, est, rearSensors, dt);
+  if (c->mode == Mode::PidOnly) return pidOnlyStep(c, est, dt);
+  return fullMapStep(c, est, dt);
 }

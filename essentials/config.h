@@ -34,9 +34,11 @@ constexpr float kPidKdHigh = 14.0f;
 constexpr float kPidSlowdownLow = 0.5f;
 constexpr float kPidSlowdownHigh = 1.0f;
 constexpr float kPidOffsetSlowdownHigh = 80.0f;
-constexpr float kKp = 160.0f;
+constexpr float kKp = 240.0f;
 constexpr float kKi = 2.0f;
-constexpr float kKd = 14.0f;
+constexpr float kKd = 22.0f;
+constexpr float kDoubleIrKp = 160.0f;
+constexpr float kDoubleIrKd = 14.0f;
 constexpr float kIntegralLimit = 1.0f;
 constexpr float kDerivativeTau = 0.03f;
 

@@ -1,7 +1,3 @@
-#!/usr/bin/env python3
-"""Browser check for the built page. Needs Playwright with Chromium.
-Usage: python3 tests/ui/check_page.py [path/to/line_follower_sim.html]
-Loads the page, runs a lap in each camera view, and checks there are no errors and the lap finishes."""
 import os, sys
 from playwright.sync_api import sync_playwright
 
