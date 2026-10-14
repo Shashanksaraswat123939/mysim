@@ -27,7 +27,20 @@ constexpr float kPlanBrake = 2.50f;       // m/s^2 braking limit
 
 // ---- Controller tuning -------------------------------------------------------
 constexpr float kPidSpeed = 0.25f;        // m/s base speed for Normal PID
-constexpr float kPidSlowdown = 0.5f;      // Normal PID: v = speed / (1 + this * |steering|), so it slows for tight corners
+// Normal PID gains are scheduled with its base speed: faster runs need a stiffer steering
+// loop. The values below are the low-speed set (at kPidGainSpeedLow) and the high-speed set
+// (at kPidGainSpeedHigh), blended linearly in between and held at the low set below that.
+constexpr float kPidGainSpeedLow = 0.25f;   // m/s
+constexpr float kPidGainSpeedHigh = 0.50f;  // m/s
+constexpr float kPidKpLow = 80.0f;
+constexpr float kPidKpHigh = 160.0f;
+constexpr float kPidKdLow = 8.0f;
+constexpr float kPidKdHigh = 14.0f;
+// The governor slows the robot as steering effort (|omega|) and line offset grow:
+// v = speed / (1 + slowdown * |omega| + offsetSlowdown * |offset|).
+constexpr float kPidSlowdownLow = 0.5f;
+constexpr float kPidSlowdownHigh = 1.0f;
+constexpr float kPidOffsetSlowdownHigh = 80.0f;  // per metre of offset, at the high-speed set
 constexpr float kKp = 80.0f;              // rad/s of steering per metre of line offset
 constexpr float kKi = 2.0f;
 constexpr float kKd = 8.0f;

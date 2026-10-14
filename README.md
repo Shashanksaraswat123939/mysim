@@ -38,11 +38,11 @@ Robustness, from the tests (`tests/test_core.cpp`):
 
 - Full map + IR finishes every map on the default run and on 8 other sensor-noise seeds,
   and across a 40-seed sweep of each map (0 failures in 240 runs).
-- Normal PID completes every map on the default run, and on 48 of 48 seeded runs (6 maps × 8 seeds)
-  at the default speed and up to 0.30 m/s. It slows down as its steering effort grows
-  (`kPidSlowdown` in `config.h`), which is what lets it turn the 8–10 cm corners. Without that
-  governor it fails Hairpin Alley and Zig-Zag at every speed. Above 0.30 m/s the slider is limited
-  because it stops being reliable (fails on hairpins at 0.32 m/s).
+- Normal PID completes every map on the default run and at every slider speed from 0.20 to 0.90 m/s.
+  Across 40 seeded noise runs per map (240 per speed), it finishes 238–240 at each speed. It needs
+  two things Normal PID is allowed to have: its steering gains scale up with its base speed, and it
+  slows down as its steering effort and line offset grow (`kPidGain*`, `kPidSlowdown*` and
+  `kPidOffsetSlowdownHigh` in `config.h`). Below 0.20 m/s it drops off on some maps.
 - Full map (blind) fails because of the robot's imperfections, not because of its logic: with a
   perfect plant (`kIdealRobot` in `sim/world.h`) it completes all six maps. The simulated real
   robot has a 0.6% weaker right motor, wheel slip, sensor noise and a start placed 3 cm off the line.

@@ -54,7 +54,7 @@ class LineController {
   bool lineSeen() const { return seen_; }
 
  private:
-  float pid(float error, float dt);
+  float pid(float error, float dt, float kp, float kd);
 
   Mode mode_;
   const Track* track_;

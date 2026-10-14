@@ -62,7 +62,7 @@ void LineController::begin(Mode mode, const Track* track, const RacingPlan* plan
   seen_ = false;
 }
 
-float LineController::pid(float error, float dt) {
+float LineController::pid(float error, float dt, float kp, float kd) {
   float derivative = 0.0f;
   if (havePrev_) derivative = (error - prevError_) / dt;
   const float alpha = dt / (config::kDerivativeTau + dt);
@@ -75,7 +75,7 @@ float LineController::pid(float error, float dt) {
   const float limit = config::kIntegralLimit / ki;
   integral_ = mlite::clamp(integral_, -limit, limit);
 
-  return tuning_.kp * error + tuning_.ki * integral_ + tuning_.kd * dFilter_;
+  return kp * error + tuning_.ki * integral_ + kd * dFilter_;
 }
 
 Command LineController::update(const float* sensors, float dt) {
@@ -94,10 +94,17 @@ Command LineController::update(const float* sensors, float dt) {
   switch (mode_) {
     case Mode::PidOnly: {
       if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
-      // While the line is in a gap, hold the last known offset instead of steering blind.
-      omega = pid(est.seen ? est.offset : lastOffset_, dt);
-      // Slow down as the steering effort grows, so tight corners can be turned in time.
-      v = tuning_.pidSpeed / (1.0f + config::kPidSlowdown * mlite::fabs(omega));
+      // Gains and governor are scheduled with the base speed (see config.h).
+      const float blend = mlite::clamp((tuning_.pidSpeed - config::kPidGainSpeedLow) /
+                                           (config::kPidGainSpeedHigh - config::kPidGainSpeedLow),
+                                       0.0f, 1.0f);
+      const float kp = config::kPidKpLow + (config::kPidKpHigh - config::kPidKpLow) * blend;
+      const float kd = config::kPidKdLow + (config::kPidKdHigh - config::kPidKdLow) * blend;
+      const float slowdown = config::kPidSlowdownLow + (config::kPidSlowdownHigh - config::kPidSlowdownLow) * blend;
+      const float offset = est.seen ? est.offset : lastOffset_;  // hold the last offset in a gap
+      omega = pid(offset, dt, kp, kd);
+      v = tuning_.pidSpeed / (1.0f + slowdown * mlite::fabs(omega) +
+                              config::kPidOffsetSlowdownHigh * blend * mlite::fabs(offset));
       break;
     }
     case Mode::FullMapBlind:
@@ -116,7 +123,7 @@ Command LineController::update(const float* sensors, float dt) {
           return Command{0.0f, 0.0f, status};
         }
         if (est.seen) {
-          omega += pid(est.offset, dt);
+          omega += pid(est.offset, dt, tuning_.kp, tuning_.kd);
         } else {
           havePrev_ = false;  // no derivative spike when the line comes back
         }
