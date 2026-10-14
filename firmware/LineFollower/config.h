@@ -27,6 +27,7 @@ constexpr float kPlanBrake = 2.50f;       // m/s^2 braking limit
 
 // ---- Controller tuning -------------------------------------------------------
 constexpr float kPidSpeed = 0.25f;        // m/s base speed for Normal PID
+constexpr float kPidSlowdown = 0.5f;      // Normal PID: v = speed / (1 + this * |steering|), so it slows for tight corners
 constexpr float kKp = 80.0f;              // rad/s of steering per metre of line offset
 constexpr float kKi = 2.0f;
 constexpr float kKd = 8.0f;

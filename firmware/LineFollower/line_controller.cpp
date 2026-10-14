@@ -94,9 +94,10 @@ Command LineController::update(const float* sensors, float dt) {
   switch (mode_) {
     case Mode::PidOnly: {
       if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
-      v = tuning_.pidSpeed;
       // While the line is in a gap, hold the last known offset instead of steering blind.
       omega = pid(est.seen ? est.offset : lastOffset_, dt);
+      // Slow down as the steering effort grows, so tight corners can be turned in time.
+      v = tuning_.pidSpeed / (1.0f + config::kPidSlowdown * mlite::fabs(omega));
       break;
     }
     case Mode::FullMapBlind:

@@ -192,6 +192,8 @@ static void testSimulation() {
     // With perfect hardware the open-loop plan alone completes every map.
     CHECK(blindIdeal.finished);
     CHECK(irIdeal.finished);
+    // Normal PID, tuned with its speed governor, completes every map at the default speed.
+    CHECK(pidReal.finished);
     // The racing plan is faster than the sensor-only controller wherever both finish.
     if (pidReal.finished) CHECK(irReal.lap < pidReal.lap);
     // Determinism: the same seed gives the same result.
