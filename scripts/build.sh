@@ -25,6 +25,9 @@ CORE=(
 )
 HOST_FLAGS=(-std=c++11 -O2 -Wall -Wextra -Werror -Ifirmware/LineFollower -Isim)
 
+echo "== 0. Essentials folder is in step with the sources"
+scripts/sync_essentials.sh --check
+
 echo "== 1. Host tests"
 g++ "${HOST_FLAGS[@]}" tests/test_core.cpp "${CORE[@]}" sim/world.cpp -o "$BUILD/test_core"
 "$BUILD/test_core"

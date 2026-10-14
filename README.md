@@ -53,7 +53,8 @@ Robustness, from the tests (`tests/test_core.cpp`):
 
 ## Documentation
 
-`docs/PROJECT.md` explains each control idea, the code behind it, the C++ concepts, how the
+`essentials/` holds only the C++ and Arduino files that run the robot, in reading order; its
+`README.md` says what to read first. `docs/PROJECT.md` explains each control idea, the code behind it, the C++ concepts, how the
 website gets its results, and every value that is approximated or invented.
 
 ## Layout
