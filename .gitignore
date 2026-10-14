@@ -1,0 +1,2 @@
+# Build outputs. web/line_follower_sim.html is committed so the simulator opens without a build.
+build/

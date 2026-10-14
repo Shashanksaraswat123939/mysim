@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Line Follower Simulator</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --panel: #ffffff;
+    --ink: #1c1c1a;
+    --muted: #6a6963;
+    --line: #dedcd5;
+    --accent: #2f6fdb;
+    --good: #1d8a4a;
+    --bad: #c0392b;
+    --warn: #a86b12;
+    --track: #17191c;
+    --canvas: #fbfbf8;
+    --sensor-off: #c9c7bf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15161a;
+      --panel: #1e1f24;
+      --ink: #ebeae6;
+      --muted: #9d9c95;
+      --line: #34363d;
+      --accent: #7aa9ff;
+      --good: #5cc98a;
+      --bad: #ff8a78;
+      --warn: #e7ae56;
+      --track: #eceae4;
+      --canvas: #121317;
+      --sensor-off: #4a4c53;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15161a;
+    --panel: #1e1f24;
+    --ink: #ebeae6;
+    --muted: #9d9c95;
+    --line: #34363d;
+    --accent: #7aa9ff;
+    --good: #5cc98a;
+    --bad: #ff8a78;
+    --warn: #e7ae56;
+    --track: #eceae4;
+    --canvas: #121317;
+    --sensor-off: #4a4c53;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 20px 16px 6px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--muted); max-width: 820px; }
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 16px 32px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 16px;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  #stage { padding: 10px; align-self: start; }
+  canvas#view {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    background: var(--canvas);
+    border-radius: 6px;
+  }
+  .legend { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .ramp { width: 180px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, hsl(0 80% 45%), hsl(60 80% 45%), hsl(120 80% 45%)); }
+  .legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
+  .controls { display: flex; flex-direction: column; gap: 16px; }
+  label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+  select, input[type="range"] { font: inherit; }
+  select {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--canvas);
+    color: var(--ink);
+  }
+  .muted { color: var(--muted); font-size: 14px; margin: 6px 0 0; min-height: 2.9em; }
+  .modes { display: flex; flex-direction: column; gap: 8px; }
+  .mode {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 2px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .mode input { margin: 3px 0 0; accent-color: var(--accent); }
+  .mode strong { font-weight: 600; }
+  .mode span { grid-column: 2; color: var(--muted); font-size: 13.5px; }
+  .mode:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button {
+    font: inherit;
+    padding: 9px 14px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 7px 7px 0; }
+  .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .status {
+    font-size: 18px;
+    font-weight: 650;
+    margin: 0 0 8px;
+    min-height: 1.4em;
+  }
+  .status.ok { color: var(--good); }
+  .status.bad { color: var(--bad); }
+  .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+  dl.stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-variant-numeric: tabular-nums; }
+  dl.stats dt { color: var(--muted); }
+  dl.stats dd { margin: 0; text-align: right; font-weight: 600; }
+  details { margin-top: 2px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details dl { margin: 10px 0 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  td.num { text-align: right; }
+  td.best { color: var(--good); font-weight: 650; }
+  td.fail { color: var(--bad); }
+  .wide { grid-column: 1 / -1; }
+  footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 28px; color: var(--muted); font-size: 13px; }
+  code { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Line Follower Simulator</h1>
+  <p id="intro">Everything on this page comes from the C++ firmware in <code>firmware/LineFollower</code>, compiled to WebAssembly. The maps, racing speeds, sensor readings, robot physics and results are all computed there.</p>
+</header>
+
+<main>
+  <section class="panel" id="stage" aria-label="Simulation view">
+    <canvas id="view" width="960" height="720" role="img" aria-label="Top-down view of the robot on the map"></canvas>
+    <div class="legend">
+      <span>Racing speed</span>
+      <span>slow</span>
+      <div class="ramp" aria-hidden="true"></div>
+      <span id="topSpeed">fast</span>
+      <label><input type="checkbox" id="showPlan" checked> Show racing speed profile</label>
+    </div>
+  </section>
+
+  <aside class="controls">
+    <section class="panel">
+      <h2>Map</h2>
+      <label class="field" for="map">Route
+        <select id="map"></select>
+      </label>
+      <p class="muted" id="mapSummary"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Control mode</h2>
+      <div class="modes" id="modes" role="radiogroup" aria-label="Control mode"></div>
+      <label class="field" style="margin-top:14px" for="pidSpeed">
+        <span>Normal PID base speed: <span id="pidValue"></span> m/s</span>
+        <input type="range" id="pidSpeed" min="0.10" max="0.60" step="0.01">
+      </label>
+    </section>
+
+    <section class="panel">
+      <h2>Run</h2>
+      <p class="status" id="status" role="status" aria-live="polite">Ready</p>
+      <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+      <div class="row">
+        <button class="primary" id="start">Start</button>
+        <button id="pause" disabled>Pause</button>
+        <button id="reset">Reset</button>
+        <div class="seg row" role="group" aria-label="Simulation speed" id="speeds" style="margin-left:auto">
+          <button data-speed="1" aria-pressed="true">1×</button>
+          <button data-speed="4" aria-pressed="false">4×</button>
+          <button data-speed="16" aria-pressed="false">16×</button>
+        </div>
+      </div>
+      <dl class="stats" style="margin-top:14px">
+        <dt>Time</dt><dd id="time">0.00 s</dd>
+        <dt>Planned lap (racing profile)</dt><dd id="planLap">—</dd>
+        <dt>Actual lap</dt><dd id="lap">—</dd>
+        <dt>Line offset, true (+ = line left of robot)</dt><dd id="trueOff">0.0 mm</dd>
+        <dt>Line offset, IR sensors</dt><dd id="estOff">—</dd>
+        <dt>Line under sensor bar</dt><dd id="seen">—</dd>
+        <dt>Wheel speed L / R</dt><dd id="wheels">0.00 / 0.00 m/s</dd>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <h2>Robot physics</h2>
+      <p class="muted" style="margin-top:0">The controllers are never told these values. They are the imperfections of the simulated robot the firmware has to cope with.</p>
+      <dl class="stats" id="plant"></dl>
+    </section>
+  </aside>
+
+  <section class="panel wide">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Compare every map and mode</h2>
+      <button id="compare">Run every combination</button>
+    </div>
+    <p class="muted" id="compareNote">Each combination is simulated to the end in C++ with the same robot, so the table is repeatable.</p>
+    <div style="overflow-x:auto">
+      <table id="results" aria-live="polite">
+        <thead><tr id="resultsHead"></tr></thead>
+        <tbody id="resultsBody"><tr><td colspan="5" class="muted">Press the button to run the comparison.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Source: <code>firmware/LineFollower/</code> (the Arduino sketch and the control code it shares with this page), <code>sim/</code> (robot physics and the WebAssembly bindings), <code>tests/</code>. Rebuild with <code>scripts/build.sh</code>.
+</footer>
+
+<script>
+"use strict";
+// The WebAssembly module built from the C++ sources, embedded by scripts/build.sh.
+const WASM_BASE64 = "__WASM_BASE64__";
+
+const $ = (id) => document.getElementById(id);
+const dec = new TextDecoder();
+let ex = null;
+
+// Reads a NUL-terminated string that lives in the module's memory.
+function str(ptr) {
+  const bytes = new Uint8Array(ex.memory.buffer);
+  let end = ptr;
+  while (bytes[end] !== 0) end++;
+  return dec.decode(bytes.subarray(ptr, end));
+}
+// Views onto module memory. Taken fresh each time, because the buffer can be replaced.
+function floats(ptr, count) { return new Float32Array(ex.memory.buffer, ptr, count); }
+
+const view = {
+  canvas: $("view"),
+  ctx: null,
+  centre: null,   // Float32Array of x, y, curvature, planned speed, line, per point
+  count: 0,
+  bounds: null,
+  topSpeed: 1,
+};
+
+const ui = {
+  running: false,
+  speed: 1,
+  lastFrame: 0,
+  map: 0,
+  mode: 2,
+  pid: 0.25,
+  outcome: 0,
+  showPlan: true,
+};
+
+const modeDefs = [];   // filled from the C++ mode table
+
+function boot() {
+  const bin = Uint8Array.from(atob(WASM_BASE64), (c) => c.charCodeAt(0));
+  return WebAssembly.instantiate(bin, {}).then(({ instance }) => {
+    ex = instance.exports;
+    setup();
+  });
+}
+
+function setup() {
+  view.ctx = view.canvas.getContext("2d");
+  view.topSpeed = ex.plan_top_speed();
+  $("topSpeed").textContent = ex.plan_top_speed().toFixed(1) + " m/s";
+
+  // Maps: names and summaries straight from the C++ catalogue.
+  const mapSelect = $("map");
+  for (let i = 0; i < ex.map_count(); i++) {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = str(ex.map_name(i));
+    mapSelect.appendChild(opt);
+  }
+
+  // Modes: names and summaries straight from the C++ controller.
+  const modes = $("modes");
+  for (let i = 0; i < ex.mode_count(); i++) {
+    const label = document.createElement("label");
+    label.className = "mode";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "mode";
+    input.value = i;
+    input.checked = i === ui.mode;
+    const name = document.createElement("strong");
+    name.textContent = str(ex.mode_name(i));
+    const desc = document.createElement("span");
+    desc.textContent = str(ex.mode_summary(i));
+    label.append(input, name, desc);
+    modes.appendChild(label);
+    modeDefs.push(name.textContent);
+  }
+
+  $("compare").textContent = `Run all ${ex.map_count() * ex.mode_count()} combinations`;
+  ui.pid = ex.default_pid_speed();
+  $("pidSpeed").value = ui.pid;
+  $("pidValue").textContent = ui.pid.toFixed(2);
+
+  // Robot physics: values from the C++ PlantParams, labels here.
+  const plantRows = [
+    ["Left motor gain", ex.plant_value(0).toFixed(3)],
+    ["Right motor gain", ex.plant_value(1).toFixed(3)],
+    ["Wheel slip (m/s per √s)", ex.plant_value(2).toFixed(3)],
+    ["Sensor noise (1σ)", ex.plant_value(3).toFixed(3)],
+    ["Start placed (x, y) m", ex.plant_value(4).toFixed(3) + ", " + ex.plant_value(5).toFixed(3)],
+    ["Start heading (rad)", ex.plant_value(6).toFixed(3)],
+    ["Wheelbase (m)", ex.geometry(0).toFixed(3)],
+    ["Sensors × spacing (m)", ex.geometry(4).toFixed(0) + " × " + ex.geometry(2).toFixed(3)],
+  ];
+  const plant = $("plant");
+  for (const [k, v] of plantRows) {
+    const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = v;
+    plant.append(dt, dd);
+  }
+
+  // Comparison table header from the C++ mode names.
+  const head = $("resultsHead");
+  ["Map", "Planned lap", ...modeDefs].forEach((t, i) => {
+    const th = document.createElement("th");
+    th.textContent = t;
+    if (i > 0) th.className = "num";
+    head.appendChild(th);
+  });
+
+  $("mapSummary").textContent = str(ex.map_summary(0));
+  bindEvents();
+  loadRun();
+  requestAnimationFrame(frame);
+}
+
+function bindEvents() {
+  $("map").addEventListener("change", (e) => { ui.map = +e.target.value; $("mapSummary").textContent = str(ex.map_summary(ui.map)); loadRun(); });
+  document.querySelectorAll('input[name="mode"]').forEach((el) => {
+    el.addEventListener("change", (e) => { ui.mode = +e.target.value; loadRun(); });
+  });
+  $("pidSpeed").addEventListener("input", (e) => {
+    ui.pid = +e.target.value;
+    $("pidValue").textContent = ui.pid.toFixed(2);
+  });
+  $("pidSpeed").addEventListener("change", () => loadRun());
+  $("start").addEventListener("click", () => {
+    if (ui.outcome !== 0) loadRun();
+    ui.running = true;
+    updateButtons();
+  });
+  $("pause").addEventListener("click", () => { ui.running = false; updateButtons(); });
+  $("reset").addEventListener("click", () => loadRun());
+  document.querySelectorAll("#speeds button").forEach((b) => {
+    b.addEventListener("click", () => {
+      ui.speed = +b.dataset.speed;
+      document.querySelectorAll("#speeds button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    });
+  });
+  $("showPlan").addEventListener("change", (e) => { ui.showPlan = e.target.checked; });
+  $("compare").addEventListener("click", runComparison);
+  window.addEventListener("resize", () => draw());
+}
+
+// Starts the chosen map and mode in C++ and reads back the geometry for drawing.
+function loadRun() {
+  ui.running = false;
+  ex.run_start(ui.map, ui.mode, ui.pid);
+  ui.outcome = 0;
+  const n = ex.run_centre_count();
+  view.count = n;
+  view.centre = floats(ex.run_centre(), n * 5).slice();
+  view.bounds = computeBounds(view.centre, n);
+  $("planLap").textContent = ex.run_plan_lap().toFixed(2) + " s";
+  $("lap").textContent = "—";
+  updateButtons();
+  updateStatus();
+  draw();
+}
+
+function computeBounds(c, n) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = c[i * 5], y = c[i * 5 + 1];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+function updateButtons() {
+  const finished = ui.outcome !== 0;
+  $("start").textContent = ui.running ? "Running…" : (finished ? "Run again" : "Start");
+  $("start").disabled = ui.running;
+  $("pause").disabled = !ui.running;
+}
+
+function frame(ts) {
+  const dt = ui.lastFrame ? Math.min(0.1, (ts - ui.lastFrame) / 1000) : 0;
+  ui.lastFrame = ts;
+  if (ui.running && ex.run_outcome() === 0) {
+    ex.run_advance(dt * ui.speed);
+  }
+  if (ui.running && ex.run_outcome() !== 0) {
+    ui.running = false;
+    ui.outcome = ex.run_outcome();
+    updateButtons();
+  }
+  draw();
+  updateStatus();
+  requestAnimationFrame(frame);
+}
+
+// ---- Drawing: every coordinate is a metre value from the C++ simulation ----
+function draw() {
+  const { canvas, ctx, centre, count, bounds } = view;
+  if (!ctx || !centre) return;
+  const rect = canvas.getBoundingClientRect();
+  const cssW = rect.width || 640;
+  const cssH = cssW * 0.75;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.height = cssH + "px";
+
+  const pad = 0.14;
+  const worldW = bounds.maxX - bounds.minX + 2 * pad;
+  const worldH = bounds.maxY - bounds.minY + 2 * pad;
+  const s = Math.min(cssW / worldW, cssH / worldH);
+  // World metres to device pixels, with y flipped so that +y points up the screen.
+  const ox = (cssW - worldW * s) / 2 - (bounds.minX - pad) * s;
+  const oy = (cssH + worldH * s) / 2 + (bounds.minY - pad) * s;
+  ctx.setTransform(dpr * s, 0, 0, -dpr * s, dpr * ox, dpr * oy);
+  ctx.clearRect(-1e3, -1e3, 1e4, 1e4);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Painted line: solid where the C++ map has tape, dotted where it has a gap.
+  const lw = geometry(3);
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = cssVar("--track");
+  for (let i = 1; i < count; i++) {
+    const a = i - 1, b = i;
+    const hasLine = centre[a * 5 + 4] > 0.5 && centre[b * 5 + 4] > 0.5;
+    if (!hasLine) continue;
+    ctx.beginPath();
+    ctx.moveTo(centre[a * 5], centre[a * 5 + 1]);
+    ctx.lineTo(centre[b * 5], centre[b * 5 + 1]);
+    ctx.stroke();
+  }
+  ctx.save();
+  ctx.setLineDash([0.02, 0.02]);
+  ctx.strokeStyle = cssVar("--muted");
+  ctx.lineWidth = 0.004;
+  for (let i = 1; i < count; i++) {
+    if (centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5) continue;
+    ctx.beginPath();
+    ctx.moveTo(centre[(i - 1) * 5], centre[(i - 1) * 5 + 1]);
+    ctx.lineTo(centre[i * 5], centre[i * 5 + 1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Racing speed profile from the C++ planner, painted over the line.
+  if (ui.showPlan) {
+    ctx.lineWidth = lw * 0.45;
+    for (let i = 1; i < count; i++) {
+      const v = 0.5 * (centre[(i - 1) * 5 + 3] + centre[i * 5 + 3]) / view.topSpeed;
+      ctx.strokeStyle = `hsl(${Math.round(120 * Math.min(1, Math.max(0, v)))} 75% 48%)`;
+      ctx.beginPath();
+      ctx.moveTo(centre[(i - 1) * 5], centre[(i - 1) * 5 + 1]);
+      ctx.lineTo(centre[i * 5], centre[i * 5 + 1]);
+      ctx.stroke();
+    }
+  }
+
+  // Start and finish markers.
+  const last = count - 1;
+  const hx = centre[last * 5] - centre[(last - 1) * 5];
+  const hy = centre[last * 5 + 1] - centre[(last - 1) * 5 + 1];
+  const hl = Math.hypot(hx, hy) || 1;
+  const nx = -hy / hl, ny = hx / hl;
+  ctx.strokeStyle = cssVar("--good");
+  ctx.lineWidth = 0.006;
+  ctx.beginPath();
+  ctx.moveTo(centre[last * 5] + nx * 0.05, centre[last * 5 + 1] + ny * 0.05);
+  ctx.lineTo(centre[last * 5] - nx * 0.05, centre[last * 5 + 1] - ny * 0.05);
+  ctx.stroke();
+
+  // Trail of where the robot really went.
+  const n = ex.run_trail_count();
+  if (n > 1) {
+    const tr = floats(ex.run_trail(), n * 2);
+    ctx.strokeStyle = cssVar("--accent");
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 0.004;
+    ctx.beginPath();
+    ctx.moveTo(tr[0], tr[1]);
+    for (let i = 1; i < n; i++) ctx.lineTo(tr[i * 2], tr[i * 2 + 1]);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  drawRobot(ctx);
+}
+
+function drawRobot(ctx) {
+  const x = ex.run_pose_x(), y = ex.run_pose_y(), th = ex.run_pose_heading();
+  const wb = geometry(0), fwd = geometry(1), spacing = geometry(2), n = geometry(4);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(th);
+  // Body and wheels.
+  ctx.fillStyle = cssVar("--accent");
+  ctx.globalAlpha = 0.9;
+  ctx.fillRect(-0.05, -wb / 2 - 0.012, 0.1, wb + 0.024);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = cssVar("--ink");
+  ctx.fillRect(-0.02, -wb / 2 - 0.016, 0.04, 0.008);
+  ctx.fillRect(-0.02, wb / 2 + 0.008, 0.04, 0.008);
+  // Heading arrow.
+  ctx.fillStyle = cssVar("--canvas");
+  ctx.beginPath();
+  ctx.moveTo(0.05, 0);
+  ctx.lineTo(0.02, 0.012);
+  ctx.lineTo(0.02, -0.012);
+  ctx.closePath();
+  ctx.fill();
+  // Sensor bar: each dot shows what that sensor reads (dark = over the tape).
+  const sensors = floats(ex.run_sensors(), n * 3);
+  ctx.lineWidth = 0.002;
+  ctx.strokeStyle = cssVar("--muted");
+  ctx.beginPath();
+  ctx.moveTo(fwd, (n - 1) * spacing / 2);
+  ctx.lineTo(fwd, -(n - 1) * spacing / 2);
+  ctx.stroke();
+  for (let i = 0; i < n; i++) {
+    const v = sensors[i * 3];
+    const lat = ((n - 1) / 2 - i) * spacing;
+    ctx.fillStyle = v > 0.5 ? cssVar("--good") : cssVar("--sensor-off");
+    ctx.beginPath();
+    ctx.arc(fwd, lat, 0.0045, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+}
+function geometry(i) { return ex.geometry(i); }
+
+function updateStatus() {
+  const outcome = ex.run_outcome();
+  const duration = ex.run_time();
+  const progress = ex.run_progress();
+  $("time").textContent = duration.toFixed(2) + " s";
+  $("bar").style.width = (progress * 100).toFixed(1) + "%";
+  const trueMm = ex.run_true_offset() * 1000;
+  $("trueOff").textContent = trueMm.toFixed(1) + " mm";
+  $("estOff").textContent = ex.run_line_seen() ? (ex.run_estimated_offset() * 1000).toFixed(1) + " mm" : "no line";
+  $("seen").textContent = ex.run_line_seen() ? "yes" : "no";
+  $("wheels").textContent = ex.run_wheel_left().toFixed(2) + " / " + ex.run_wheel_right().toFixed(2) + " m/s";
+  if (outcome === 1) $("lap").textContent = ex.run_lap_time().toFixed(2) + " s";
+
+  const status = $("status");
+  status.textContent = str(ex.outcome_name(outcome));
+  status.className = "status " + (outcome === 1 ? "ok" : outcome === 0 ? "" : "bad");
+  if (outcome === 0 && !ui.running && duration === 0) status.textContent = "Ready. Press Start.";
+  if (outcome === 0 && ui.running) status.textContent = `${str(ex.mode_name(ui.mode))}: running`;
+}
+
+// ---- Comparison: every map in every mode, each run to its end in C++ ----
+function runComparison() {
+  const body = $("resultsBody");
+  body.innerHTML = "";
+  const rows = [];
+  for (let m = 0; m < ex.map_count(); m++) {
+    const laps = [];
+    const outs = [];
+    let planLap = 0;
+    for (let md = 0; md < ex.mode_count(); md++) {
+      const lap = ex.headless_lap(m, md, ui.pid);
+      laps.push(lap);
+      outs.push(ex.headless_outcome());
+      if (md === 0) planLap = ex.run_plan_lap();
+    }
+    rows.push({ name: str(ex.map_name(m)), planLap, laps, outs });
+  }
+  // Put the live run back on the page's selection.
+  loadRun();
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const bestLap = Math.min(...r.laps.filter((l) => l > 0));
+    tr.innerHTML = `<td>${escapeHtml(r.name)}</td><td class="num">${r.planLap.toFixed(2)} s</td>`;
+    r.laps.forEach((lap, i) => {
+      const td = document.createElement("td");
+      td.className = "num";
+      if (lap > 0) {
+        td.textContent = lap.toFixed(2) + " s";
+        if (lap === bestLap) td.classList.add("best");
+      } else {
+        td.textContent = str(ex.outcome_short(r.outs[i]));
+        td.classList.add("fail");
+      }
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  }
+  $("compareNote").textContent = "Lap times are seconds from the start line to the finish, with the same robot and noise seed for every run. Green marks the fastest finished lap on each map.";
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+boot().catch((err) => {
+  $("status").textContent = "Could not load the simulator: " + err.message;
+  $("status").className = "status bad";
+});
+</script>
+</body>
+</html>
