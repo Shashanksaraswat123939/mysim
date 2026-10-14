@@ -186,6 +186,7 @@
         <dt>Actual wheel speed L / R</dt><dd id="wheelsActual">0.00 / 0.00 m/s</dd>
         <dt>Wheel slip L / R</dt><dd id="slip">0% / 0%</dd>
         <dt>Sideways slide</dt><dd id="slide">0.0 mm/s</dd>
+        <dt>Curve radius, true / measured</dt><dd id="radius">—</dd>
       </dl>
     </section>
 
@@ -553,22 +554,32 @@ function drawRobot(ctx) {
   ctx.closePath();
   ctx.fill();
   // Sensor bar: each dot shows what that sensor reads (dark = over the tape).
-  const sensors = floats(ex.run_sensors(), n * 3);
+  // The rear row (Double IR) is drawn too; the other modes only read the front row.
+  const sensors = floats(ex.run_sensors(), 2 * n * 3);
+  const rear = geometry(6);
   ctx.lineWidth = 0.002;
   ctx.strokeStyle = cssVar("--muted");
-  ctx.beginPath();
-  ctx.moveTo(fwd, (n - 1) * spacing / 2);
-  ctx.lineTo(fwd, -(n - 1) * spacing / 2);
-  ctx.stroke();
-  for (let i = 0; i < n; i++) {
-    const v = sensors[i * 3];
-    const lat = ((n - 1) / 2 - i) * spacing;
-    ctx.fillStyle = v > 0.5 ? cssVar("--good") : cssVar("--sensor-off");
+  for (let row = 0; row < 2; row++) {
+    const x = row === 0 ? fwd : -rear;
     ctx.beginPath();
-    ctx.arc(fwd, lat, 0.0045, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(x, (n - 1) * spacing / 2);
+    ctx.lineTo(x, -(n - 1) * spacing / 2);
+    ctx.stroke();
+    for (let i = 0; i < n; i++) {
+      const v = sensors[(row * n + i) * 3];
+      const lat = ((n - 1) / 2 - i) * spacing;
+      ctx.fillStyle = v > 0.5 ? cssVar("--good") : cssVar("--sensor-off");
+      ctx.beginPath();
+      ctx.arc(x, lat, 0.0045, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
+}
+
+// Radius in centimetres for a curvature in 1/m. Nearly straight reads as "straight".
+function radiusText(k) {
+  return Math.abs(k) < 0.5 ? "straight" : (100 / Math.abs(k)).toFixed(0) + " cm";
 }
 
 function cssVar(name) {
@@ -590,6 +601,8 @@ function updateStatus() {
   $("wheelsActual").textContent = ex.run_wheel_actual_left().toFixed(2) + " / " + ex.run_wheel_actual_right().toFixed(2) + " m/s";
   $("slip").textContent = (Math.round(ex.run_slip_left() * 100) || 0) + "% / " + (Math.round(ex.run_slip_right() * 100) || 0) + "%";
   $("slide").textContent = (ex.run_slide_speed() * 1000).toFixed(1) + " mm/s";
+  // Double IR (mode 3) measures the radius of the bend under it. Other modes do not.
+  $("radius").textContent = ui.mode === 3 ? radiusText(ex.run_true_curvature()) + " / " + radiusText(ex.run_estimated_curvature()) : "—";
   if (outcome === 1) $("lap").textContent = ex.run_lap_time().toFixed(2) + " s";
 
   const status = $("status");

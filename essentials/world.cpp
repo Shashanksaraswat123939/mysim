@@ -107,24 +107,29 @@ float World::gauss() {
 }
 
 void World::sense() {
+  // Two rows: the front bar ahead of the axle, and the rear bar behind it. Both use the same sensors.
   const float c = mlite::cos(th_);
   const float s = mlite::sin(th_);
-  for (uint8_t i = 0; i < config::kSensorCount; ++i) {
-    const float lat = ((config::kSensorCount - 1) * 0.5f - i) * config::kSensorSpacing;
-    const float px = x_ + config::kSensorForward * c - lat * s;
-    const float py = y_ + config::kSensorForward * s + lat * c;
-    sensorX_[i] = px;
-    sensorY_[i] = py;
+  for (uint8_t row = 0; row < 2; ++row) {
+    const float fwd = row == 0 ? config::kSensorForward : -config::kRearRowDistance;
+    for (uint8_t i = 0; i < config::kSensorCount; ++i) {
+      const uint8_t k = (uint8_t)(row * config::kSensorCount + i);
+      const float lat = ((config::kSensorCount - 1) * 0.5f - i) * config::kSensorSpacing;
+      const float px = x_ + fwd * c - lat * s;
+      const float py = y_ + fwd * s + lat * c;
+      sensorX_[k] = px;
+      sensorY_[k] = py;
 
-    // Reflectance falls off over 6 mm either side of the tape's edge.
-    const uint16_t j = nearest(px, py, robotIdx_);
-    const CentrePoint& p = centre_[j];
-    const float dx = px - p.x;
-    const float dy = py - p.y;
-    const float d = mlite::sqrt(dx * dx + dy * dy);
-    float reflect = 0.0f;
-    if (p.line) reflect = mlite::clamp(1.0f - (d - 0.5f * config::kLineWidth) / 0.006f, 0.0f, 1.0f);
-    sensors_[i] = mlite::clamp(reflect + plant_.sensorNoise * gauss(), 0.0f, 1.0f);
+      // Reflectance falls off over 6 mm either side of the tape's edge.
+      const uint16_t j = nearest(px, py, robotIdx_);
+      const CentrePoint& p = centre_[j];
+      const float dx = px - p.x;
+      const float dy = py - p.y;
+      const float d = mlite::sqrt(dx * dx + dy * dy);
+      float reflect = 0.0f;
+      if (p.line) reflect = mlite::clamp(1.0f - (d - 0.5f * config::kLineWidth) / 0.006f, 0.0f, 1.0f);
+      sensors_[k] = mlite::clamp(reflect + plant_.sensorNoise * gauss(), 0.0f, 1.0f);
+    }
   }
 }
 
@@ -248,7 +253,8 @@ void World::judge(RunStatus controllerStatus, float dt) {
 void World::tick() {
   const float dt = config::kControlPeriod;
   sense();
-  const Command cmd = ctrl_.update(sensors_, dt);
+  ctrl_.setWheelEncoders(wL_, wR_);  // encoders read the wheels' rolling speed, slip included
+  const Command cmd = ctrl_.update(sensors_, dt, sensors_ + config::kSensorCount);
   actuate(cmd.left, cmd.right, dt);
   judge(cmd.status, dt);
 }

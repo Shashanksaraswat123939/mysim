@@ -7,13 +7,19 @@ number in the results table come from `firmware/LineFollower/` and `sim/`.
 
 Open `web/line_follower_sim.html` in a browser. No server is needed.
 
-## Three ways to drive a map
+## Four ways to drive a map
 
 | Mode | What the robot knows | How it steers |
 |---|---|---|
 | **Normal PID** | Only what its IR sensors see | PID on the measured line offset. Slows down only when it has to. |
 | **Full map (blind)** | The whole map, and the racing speed profile computed from it | Replays the planned speed and curvature open loop. It dead-reckons its position and never looks at the line. |
 | **Full map + IR correction** | The whole map and the racing profile | Same feed-forward as blind, plus PID on the IR sensors that corrects drift, inaccuracies and gaps. |
+| **Double IR** | No map. Two sensor rows (ahead of and behind the axle) and wheel encoders | Measures the curvature of the bend it is in, and steers by PID with curvature feed-forward. Speed follows the grip limit for that radius, capped at 0.40 m/s. Needs the extra hardware (see below). |
+
+Double IR needs hardware the current robot does not have: a second sensor row behind the axle, and
+wheel encoders. Two rows give the line's direction relative to the robot. Converting that to a radius needs
+the robot's own turn rate, which only the encoders can give. The sketch refuses to build this mode until
+the hardware layer reads both (`static_assert` in `LineFollower.ino`).
 
 The "racing line" is the speed profile. A line follower cannot cut corners, so the planner
 works out the fastest speed at every point of the route, limited by grip
@@ -27,14 +33,14 @@ Lap times in seconds from the start to the finish. `plan` is the ideal lap for t
 simulated robot is a physics model (mass, friction, rolling loss, motor stall force, tyre slide); see
 `docs/PROJECT.md` section 6.1.
 
-| Map | plan | Normal PID (0.25 m/s) | Full map (blind) | Full map + IR |
-|---|---|---|---|---|
-| Warm-Up Oval | 6.06 | 23.30 | derailed | 7.20 |
-| Chicane | 3.74 | 12.08 | derailed | 4.28 |
-| Hairpin Alley | 5.18 | 16.27 | derailed | 5.46 |
-| Dashed Line | 3.57 | 13.32 | derailed | 4.30 |
-| Zig-Zag | 3.99 | 10.94 | derailed | 4.17 |
-| Sweepers | 5.58 | 24.08 | derailed | 6.68 |
+| Map | plan | Normal PID (0.25 m/s) | Full map (blind) | Full map + IR | Double IR |
+|---|---|---|---|---|---|
+| Warm-Up Oval | 6.06 | 23.30 | derailed | 7.20 | 12.05 |
+| Chicane | 3.74 | 12.08 | derailed | 4.28 | 6.08 |
+| Hairpin Alley | 5.18 | 16.27 | derailed | 5.46 | 7.50 |
+| Dashed Line | 3.57 | 13.32 | derailed | 4.30 | 6.90 |
+| Zig-Zag | 3.99 | 10.94 | derailed | 4.17 | 5.03 |
+| Sweepers | 5.58 | 24.08 | derailed | 6.68 | 13.15 |
 
 Robustness, from the tests (`tests/test_core.cpp`):
 
@@ -44,6 +50,10 @@ Robustness, from the tests (`tests/test_core.cpp`):
   speed. Its steering gains scale up with its base speed, and it slows down as its steering effort and line
   offset grow (`kPidGain*`, `kPidSlowdown*` and `kPidOffsetSlowdownHigh` in `config.h`). Re-checked on the
   physics model: 240 of 240 seeded runs at every slider speed from 0.20 to 0.90 m/s.
+- Double IR finishes every map on the default run and 240 of 240 seeded runs (40 per map). Its curvature
+  estimate is within a median of 6% to 16% on the curved parts of each map. Its speed is capped at 0.40 m/s
+  because the front row sees a bend only 4 cm ahead. Above about 0.5 m/s, it fails. The radius term only
+  changes the speed below a radius of about 10 cm; `docs/PROJECT.md` section 5.4 has the data.
 - Full map (blind) finishes 0 of 240 seeded runs and none on the default run (`build/site/results.json`,
   from the C++ build). It fails because of the robot's imperfections, not its logic: with a perfect plant
   (`kIdealRobot` in `sim/world.h`) it completes all six maps. The real robot's motors have no speed
@@ -67,7 +77,7 @@ firmware/LineFollower/   Arduino sketch + the control code it shares with the si
   track.h/.cpp           map geometry: straights, arcs and gaps
   maps.h/.cpp            the map catalogue (edit this to add routes)
   planner.h/.cpp         racing-line speed profile (forward/backward pass)
-  line_controller.h/.cpp the three control modes, line estimate from the IR sensors
+  line_controller.h/.cpp the four control modes, line estimate from the IR sensors
   mathlite.h             small sin/cos/sqrt so the code builds for AVR, host and wasm
 sim/
   world.h/.cpp           simulated robot: motors, sensors, ground truth, outcomes

@@ -336,7 +336,7 @@ That limit shapes the whole controller design.
 - **`LineController::update(sensors, dt)`** is called once per control tick and returns a `Command`.
   The controller is the only part of the robot that makes decisions.
 
-## 5. The three control modes
+## 5. The four control modes
 
 All three live in `LineController::update()` in `line_controller.cpp`. Every control tick they follow
 the same pattern: compute a turn rate `ω` and speed `v`, then convert them to wheel speeds.
@@ -448,6 +448,65 @@ corner, the feed-forward turns the robot at the wrong place. The PID corrects th
 but it does not correct `s` itself. In simulation traces, a few centimetres of error in `s` at an arc
 exit left the robot a fraction of a radian short of the tangent. The sensors could correct the position
 but not the heading error quickly enough, and that is the failure mode to watch on hardware.
+
+### 5.4 Double IR: two rows and encoders, measuring the curve
+
+**What it is.** A mode with no map. It has two rows of sensors, one ahead of the axle and one behind it, at
+the same distance (4 cm). It also reads the wheel encoders. From these it measures the curvature of the bend
+it is in, and sets its speed from that curvature.
+
+**Why it needs more than the sensors.** The two rows measure the line's direction relative to the robot, and
+that is all they measure. To turn a direction into a radius, the robot also needs its own turn rate. The
+encoders give that. The commanded turn rate does not work: the wheels cannot follow it during a fast steering
+change, so the observer built on the command was wrong by more than 100%.
+
+**How it works, step by step** (`line_controller.cpp`, `doubleIr()`):
+
+1. **Heading from the rows.** `theta = (yFront - yRear) / (a + b)`. The unknown offset of the axle from the
+   line cancels when the rows are the same distance from the axle. That is why they must be equal.
+2. **Curvature.** Between two moments, `theta` changes by `kappa * v - w`, where `w` is the robot's turn rate.
+   So `kappa = (d(theta)/dt + w) / v`. The turn rate `w` is `(right encoder - left encoder) / wheelbase`. Both
+   `theta` and its rate are smoothed with a 0.05 s time constant.
+3. **Speed.** `v = min(0.40, sqrt(aLat / |kappa|))`, with `aLat = 1.6 m/s^2`. Wide bends allow more speed and
+   tight bends less. The speed changes no faster than the plan's acceleration and braking limits.
+4. **Steering.** `omega = v * kappa + PID(front offset)`. The feed-forward is the curvature just measured, and
+   the PID corrects what is left over, with the same gains as Full map + IR.
+5. **Gaps and the end.** With no line for 0.6 s it gives up. It has no map, so the end of the tape is the only
+   sign of the finish.
+
+**What the data says.** Every number below was measured in the simulator.
+
+- *Two rows alone cannot give a radius.* Their common offset is multiplied by about 1250 per metre of
+  offset error, because the rows are 8 cm apart. Estimating curvature from positions alone gave values from
+  -10 to +21 1/m on straight sections.
+- *The commanded turn rate is not the real one.* On a 90 degree bend the command was about 5.8 rad/s, and the
+  robot turned at about 3.1 rad/s, which matches the true curvature. The encoders read 2.6 rad/s against a
+  true 2.7 rad/s on the same bend.
+- *With encoders, the curvature is close.* On the final model the median error on the curved parts is 6% to
+  16% per map, and the 90th percentile is 18% to 57%. The error is largest at the entry and exit of a bend,
+  where the estimate lags by about the smoothing time.
+- *Speed is limited by reaction time, not by the grip rule.* The front row sees a bend 4 cm before the axle.
+  At 0.8 m/s that is about 50 ms, and braking from 0.8 to 0.4 m/s takes about 0.2 m. With no speed cap, Double
+  IR completes 16 of 48 seeded runs. Capped at 0.50 m/s it completes 46 of 48, and at 0.40 m/s it completes
+  every run (240 of 240 across the 40-seed test).
+- *The grip rule itself is physical.* At a fixed speed, the sideways slide grows on tighter bends. At 0.5 m/s
+  the slide is 2.2 cm/s on a 10 cm radius and 0.4 cm/s on a 50 cm radius (`testGripPhysics` in `tests/test_core.cpp`).
+  So the speed limit must fall as the radius gets tighter, which is `v = sqrt(aLat * R)`. The sentence "if the
+  radius is high it is afraid of slipping, so it will be slower" describes the opposite. The mode uses the
+  physical direction.
+- *The radius term barely matters here.* With the 0.40 m/s cap, `sqrt(1.6 / |kappa|)` is below the cap only
+  for radii under about 10 cm. On these maps that is only the hairpins. The reversed rule (speeding up on
+  tight bends) also completed 6 of 6 maps and 48 of 48 seeds, because the cap sets the speed on every bend.
+  The data cannot yet tell the two rules apart. To make the radius matter, the robot needs to know a bend
+  before it reaches it, which needs a front row further ahead.
+
+**The grip value.** `aLat = 1.6 m/s^2` is the lowest sideways acceleration at which the slide reached 2 cm/s,
+across radii from 10 cm to 50 cm (`testGripPhysics` in `tests/test_core.cpp`). The model's theoretical limit is
+`mu * g = 5.9 m/s^2`. On a real robot this number must be measured, not copied.
+
+**Hardware.** A second sensor row at 40 mm behind the axle, at the same spacing as the front row. Wheel encoders
+on both drive wheels. On the Mega the rear row can use A5 to A9. Neither is read by `hardware.cpp` yet, which is
+why `LineFollower.ino` refuses to build this mode.
 
 ## 6. The simulator
 
@@ -734,6 +793,10 @@ the real world.
 | Tyre cornering stiffness | 8 N/rad per wheel | `sim/world.h` | Guessed. It sets how far the robot slides on a corner. |
 | Motor right gain | 0.994 of the left | `sim/world.h` | Real mismatch changes with battery, load and temperature. |
 | Battery | Not modelled | — | A real battery sags under load, which slows the motors further. |
+| Double IR grip limit | aLat = 1.6 m/s² | `config.h` | Taken from the simulator's slide data. On a real robot it must be measured, because it sets the speed on every bend. |
+| Double IR speed cap | 0.40 m/s | `config.h` | Set by the simulator's entry test: the front row sees a bend 4 cm ahead, so faster entries fail. Depends on the real sensor reach and the braking. |
+| Curvature smoothing | 0.05 s | `config.h` | Chosen to balance lag against noise. The estimate lags by about this time at each bend entry and exit. |
+| Rear row and encoders | 40 mm behind the axle; encoders read rolling wheel speed, slip included | `sim/world.cpp` | A real encoder sees the wheel turning, not the ground, so slip adds error to the turn rate. Encoder resolution and sampling are not modelled. |
 | Wheel inertia, slip scale, speed floor | 4e-6 kg m²; slip scale 0.2; floor 0.2 m/s | `sim/world.h` | Numerical and modelling choices. The floor keeps the model stable near standstill. |
 | Noise distribution | Sum of four uniform values | `sim/world.cpp` | Real noise has heavier tails, so rare bad readings are under-represented. |
 | Sensor response | Full reading over the tape, falling off over 6 mm | `sim/world.cpp` | Real reflectance is blurred and nonlinear, and varies between sensors. |

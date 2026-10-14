@@ -114,9 +114,12 @@ class World {
   const CentrePoint* centre() const { return centre_; }
   uint16_t centreCount() const { return centreCount_; }
   float planSpeedAt(float s) const { return plan_.speedAt(s); }
+  // Sensors 0..kSensorCount-1 are the front row, kSensorCount..2*kSensorCount-1 the rear row.
   float sensorValue(uint8_t i) const { return sensors_[i]; }
   float sensorX(uint8_t i) const { return sensorX_[i]; }
   float sensorY(uint8_t i) const { return sensorY_[i]; }
+  float estimatedCurvature() const { return ctrl_.estimatedCurvature(); }  // 1/m, from the controller
+  float trueCurvature() const { return centre_[robotIdx_].curvature; }    // 1/m, ground truth
   const float* trailXY() const { return trail_; }
   uint16_t trailCount() const { return trailCount_; }
 
@@ -144,9 +147,9 @@ class World {
   float slipL_, slipR_;       // slip ratios
   float fxL_, fxR_;           // longitudinal tyre forces
   float cmdLeft_, cmdRight_;  // last command from the controller
-  float sensors_[config::kSensorCount];
-  float sensorX_[config::kSensorCount];
-  float sensorY_[config::kSensorCount];
+  float sensors_[2 * config::kSensorCount];
+  float sensorX_[2 * config::kSensorCount];
+  float sensorY_[2 * config::kSensorCount];
   uint16_t robotIdx_;
   float trueOffset_;
   float trueS_;

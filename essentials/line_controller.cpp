@@ -7,6 +7,7 @@ const char* modeName(Mode mode) {
     case Mode::PidOnly: return "Normal PID";
     case Mode::FullMapBlind: return "Full map (blind)";
     case Mode::FullMapIr: return "Full map + IR correction";
+    case Mode::DoubleIr: return "Double IR (two rows)";
   }
   return "unknown";
 }
@@ -19,6 +20,8 @@ const char* modeSummary(Mode mode) {
       return "Knows the whole map and replays the racing speed profile open loop. The sensors are ignored.";
     case Mode::FullMapIr:
       return "Replays the racing profile for speed and steering, and uses the IR sensors to correct drift and bridge gaps.";
+    case Mode::DoubleIr:
+      return "Two sensor rows, ahead of and behind the axle. Measures the curve it is in, and slows for tight bends and speeds up on wide ones. No map.";
   }
   return "";
 }
@@ -47,6 +50,11 @@ LineEstimate estimateLine(const float* sensors) {
   return e;
 }
 
+float lineHeading(float frontOffset, float rearOffset, float frontDist, float rearDist) {
+  // yF - yR = theta * (a + b) + kappa * (a^2 - b^2) / 2. The kappa term is zero when a == b.
+  return (frontOffset - rearOffset) / (frontDist + rearDist);
+}
+
 void LineController::begin(Mode mode, const Track* track, const RacingPlan* plan, const Tuning& tuning) {
   mode_ = mode;
   track_ = track;
@@ -58,6 +66,13 @@ void LineController::begin(Mode mode, const Track* track, const RacingPlan* plan
   integral_ = 0.0f;
   prevError_ = 0.0f;
   dFilter_ = 0.0f;
+  kappa_ = 0.0f;
+  theta_ = 0.0f;
+  thetaRate_ = 0.0f;
+  encL_ = 0.0f;
+  encR_ = 0.0f;
+  haveTheta_ = false;
+  speedCmd_ = config::kLaunchSpeed;
   havePrev_ = false;
   seen_ = false;
 }
@@ -78,7 +93,7 @@ float LineController::pid(float error, float dt, float kp, float kd) {
   return kp * error + tuning_.ki * integral_ + kd * dFilter_;
 }
 
-Command LineController::update(const float* sensors, float dt) {
+Command LineController::update(const float* sensors, float dt, const float* rearSensors) {
   const LineEstimate est = estimateLine(sensors);
   seen_ = est.seen;
   if (est.seen) {
@@ -87,6 +102,8 @@ Command LineController::update(const float* sensors, float dt) {
   } else {
     lostTime_ += dt;
   }
+
+  if (mode_ == Mode::DoubleIr) return doubleIr(est, rearSensors, dt);
 
   float v = 0.0f;
   float omega = 0.0f;
@@ -135,6 +152,8 @@ Command LineController::update(const float* sensors, float dt) {
       }
       break;
     }
+    case Mode::DoubleIr:
+      break;  // handled above, before the switch
   }
 
   // Differential drive: the wheel on the inside of the turn runs slower.
@@ -142,6 +161,59 @@ Command LineController::update(const float* sensors, float dt) {
   Command cmd;
   cmd.left = mlite::clamp(v - omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
   cmd.right = mlite::clamp(v + omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
+  cmd.status = RunStatus::Driving;
+  return cmd;
+}
+
+Command LineController::doubleIr(const LineEstimate& front, const float* rearSensors, float dt) {
+  // With no line in sight the robot can only give up, as Normal PID does.
+  if (lostTime_ > config::kLostTimeout) return Command{0.0f, 0.0f, RunStatus::GaveUp};
+
+  // 1. Curvature of the line under the robot. The rows give the line's direction relative to the
+  //    robot, theta. Between two moments, theta changes by kappa*v*dt minus the robot's own turn,
+  //    so kappa = (rate of change of theta + robot turn rate) / v. The robot's turn rate comes
+  //    from the encoders. Both pieces are smoothed with the same time constant.
+  if (rearSensors != nullptr && front.seen) {
+    const LineEstimate back = estimateLine(rearSensors);
+    if (back.seen) {
+      const float theta = lineHeading(front.offset, back.offset, config::kSensorForward, config::kRearRowDistance);
+      const float a = dt / (config::kCurveTau + dt);
+      if (!haveTheta_) {
+        theta_ = theta;
+        haveTheta_ = true;
+      } else {
+        const float prevTheta = theta_;
+        theta_ += a * (theta - theta_);
+        thetaRate_ += a * ((theta_ - prevTheta) / dt - thetaRate_);
+      }
+      const float turnRate = (encR_ - encL_) / config::kWheelBase;  // positive = turning left
+      const float v = mlite::fmax(speedCmd_, config::kLaunchSpeed);
+      kappa_ += a * ((thetaRate_ + turnRate) / v - kappa_);
+    }
+  }
+
+  // 2. Speed from the curve: the sideways grip limit gives v = sqrt(aLat / |kappa|), so a wide
+  //    bend (small kappa) allows more speed and a tight bend (large kappa) less. The speed moves
+  //    no faster than the plan's acceleration and braking limits.
+  const float absK = mlite::fmax(mlite::fabs(kappa_), 1e-3f);
+  float target = mlite::sqrt(config::kDoubleIrLatAccel / absK);
+  if (target > config::kDoubleIrVMax) target = config::kDoubleIrVMax;
+  speedCmd_ = mlite::clamp(target, speedCmd_ - config::kPlanBrake * dt, speedCmd_ + config::kPlanAccel * dt);
+  if (speedCmd_ < config::kLaunchSpeed) speedCmd_ = config::kLaunchSpeed;
+
+  // 3. Steering: feed-forward from the measured curvature, plus PID on the front row's offset.
+  float omega = speedCmd_ * kappa_;
+  if (front.seen) {
+    lastOffset_ = front.offset;
+    omega += pid(front.offset, dt, tuning_.kp, tuning_.kd);
+  } else {
+    havePrev_ = false;  // no derivative spike when the line comes back
+  }
+
+  const float half = 0.5f * config::kWheelBase;
+  Command cmd;
+  cmd.left = mlite::clamp(speedCmd_ - omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
+  cmd.right = mlite::clamp(speedCmd_ + omega * half, -config::kWheelMaxSpeed, config::kWheelMaxSpeed);
   cmd.status = RunStatus::Driving;
   return cmd;
 }

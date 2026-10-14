@@ -201,7 +201,65 @@ static void testSimulation() {
   }
 }
 
+// The grip physics that Double IR's speed rule relies on: at a fixed speed, the sideways slide is larger
+// on a tighter arc. Measured open loop, with the wheels commanded for the arc.
+static float slideOnArc(float radius, float speed) {
+  g_world.start(0, Mode::FullMapBlind, config::kPidSpeed, kRealRobot, 1u);
+  const float om = speed / radius;
+  const float left = speed - om * 0.5f * config::kWheelBase;
+  const float right = speed + om * 0.5f * config::kWheelBase;
+  float worst = 0.0f;
+  for (int i = 0; i < 1000; ++i) {  // 2 s, so the robot settles on the arc
+    g_world.actuate(left, right, config::kControlPeriod);
+    if (i > 500) worst = fmaxf(worst, fabsf(g_world.slideSpeed()));
+  }
+  return worst;
+}
+
+static void testGripPhysics() {
+  const float tight = slideOnArc(0.10f, 0.5f);
+  const float wide = slideOnArc(0.50f, 0.5f);
+  printf("  sideways slide at 0.5 m/s: %.1f mm/s on 10 cm radius, %.1f mm/s on 50 cm radius\n",
+         1000.0f * tight, 1000.0f * wide);
+  CHECK(tight > 3.0f * wide);  // measured ratio about 5
+}
+
+// Double IR: the heading from two rows, and the curvature the robot measures on a real run.
+static void testDoubleIr() {
+  // With equal row distances the curvature cancels, so the heading is exact for any kappa and y0.
+  const float a = 0.04f;
+  const float theta = 0.07f, kappa = 6.0f, y0 = 0.0023f;
+  const float yF = y0 + theta * a + kappa * a * a * 0.5f;
+  const float yR = y0 - theta * a + kappa * a * a * 0.5f;
+  CHECK(fabsf(lineHeading(yF, yR, a, a) - theta) < 1e-5f);
+
+  // The Double IR mode finishes every map on the default run, and the curvature it measures on the
+  // curved parts stays close to the truth (median error under 25%; measured 6 to 16%).
+  for (uint8_t m = 0; m < kMapCount; ++m) {
+    g_world.start(m, Mode::DoubleIr, config::kPidSpeed, kRealRobot, 0x2545F491u);
+    static float rel[4000];
+    int n = 0;
+    while (g_world.outcome() == Outcome::Running) {
+      g_world.advance(config::kControlPeriod);
+      const float kt = g_world.trueCurvature();
+      if (fabsf(kt) > 0.5f && n < 4000) rel[n++] = fabsf(g_world.estimatedCurvature() - kt) / fabsf(kt);
+    }
+    CHECK(g_world.outcome() == Outcome::Finished);
+    for (int i = 1; i < n; ++i) {  // insertion sort: small, and keeps the test free of library calls
+      const float x = rel[i];
+      int j = i - 1;
+      while (j >= 0 && rel[j] > x) { rel[j + 1] = rel[j]; --j; }
+      rel[j + 1] = x;
+    }
+    if (n > 0) CHECK(rel[n / 2] < 0.25f);
+    printf("  %-16s Double IR finished %s, median curvature error %.0f%%\n", mapInfo(m).name,
+           g_world.outcome() == Outcome::Finished ? "yes" : "no", n ? 100.0f * rel[n / 2] : 0.0f);
+  }
+}
+
 int main() {
+  printf("Grip physics\n");
+  testGripPhysics();
   printf("Math\n");
   testMathLite();
   printf("Sensor estimate\n");
@@ -214,6 +272,8 @@ int main() {
   testControllers();
   printf("Simulation\n");
   testSimulation();
+  printf("Double IR\n");
+  testDoubleIr();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -16,6 +16,9 @@
 // kSelectedMode is Mode::PidOnly, Mode::FullMapBlind or Mode::FullMapIr.
 constexpr uint8_t kSelectedMap = 0;
 constexpr Mode kSelectedMode = Mode::FullMapIr;
+// Double IR needs a second sensor row behind the axle and wheel encoders. The hardware layer does not
+// read either yet, so the sketch refuses to build that mode. Remove this line once they are wired.
+static_assert(kSelectedMode != Mode::DoubleIr, "Double IR needs the rear sensor row and wheel encoders");
 
 constexpr uint32_t kTelemetryPeriodMs = 100;
 

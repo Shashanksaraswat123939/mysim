@@ -6,7 +6,7 @@ namespace {
 
 World g_world;
 float g_centre[sim::kMaxCentre * 5];  // x, y, curvature, planned speed, line present
-float g_sensors[config::kSensorCount * 3];  // value, x, y
+float g_sensors[2 * config::kSensorCount * 3];  // per sensor: value, x, y. Front row, then rear row.
 int g_headlessOutcome = 0;
 
 Mode modeFrom(int m) {
@@ -37,6 +37,7 @@ __attribute__((export_name("geometry"))) float geometry(int which) {
     case 3: return config::kLineWidth;
     case 4: return (float)config::kSensorCount;
     case 5: return sim::kDerailOffset;
+    case 6: return config::kRearRowDistance;
   }
   return 0.0f;
 }
@@ -108,13 +109,17 @@ __attribute__((export_name("run_centre"))) float* run_centre() {
 
 // Sensor readings for the current instant: value (0 white .. 1 black), x, y per sensor.
 __attribute__((export_name("run_sensors"))) float* run_sensors() {
-  for (uint8_t i = 0; i < config::kSensorCount; ++i) {
+  for (uint8_t i = 0; i < 2 * config::kSensorCount; ++i) {
     g_sensors[i * 3 + 0] = g_world.sensorValue(i);
     g_sensors[i * 3 + 1] = g_world.sensorX(i);
     g_sensors[i * 3 + 2] = g_world.sensorY(i);
   }
   return g_sensors;
 }
+
+// Double IR: the curvature the robot measured, and the true curvature of the centre line under it (1/m).
+__attribute__((export_name("run_estimated_curvature"))) float run_estimated_curvature() { return g_world.estimatedCurvature(); }
+__attribute__((export_name("run_true_curvature"))) float run_true_curvature() { return g_world.trueCurvature(); }
 
 __attribute__((export_name("run_trail_count"))) int run_trail_count() { return g_world.trailCount(); }
 __attribute__((export_name("run_trail"))) const float* run_trail() { return g_world.trailXY(); }

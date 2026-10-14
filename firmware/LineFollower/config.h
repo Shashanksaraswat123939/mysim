@@ -47,4 +47,20 @@ constexpr float kKd = 14.0f;
 constexpr float kIntegralLimit = 1.0f;    // rad/s, anti-windup clamp on the I term
 constexpr float kDerivativeTau = 0.03f;   // s, smoothing on the D term so sensor noise is not amplified
 
+// ---- Double IR: a second sensor row, behind the axle --------------------------
+// Needs a second bar of sensors (see docs/PROJECT.md). The front bar is kSensorForward ahead of the axle.
+constexpr float kRearRowDistance = 0.040f;  // m behind the axle for the rear sensor row
+// Sideways grip limit the robot is willing to use. From the simulator's grip data: the sideways
+// slide reaches 2 cm/s at 1.6 to 2.5 m/s^2 across radii, and the model's theoretical limit is
+// mu*g = 5.9 m/s^2. The lowest value of that range is used. Calibrate it on the real robot.
+constexpr float kDoubleIrLatAccel = 1.6f;   // m/s^2
+// Smoothing on the curvature estimate, seconds. Shorter follows bends sooner but passes more sensor noise.
+// Top speed for Double IR. The front row sees a bend only 4 cm before the axle, so the speed cannot be
+// set in advance. Measured in the simulator: capped at 0.40 m/s it completes every map (48 of 48 seeded
+// runs); at 0.50 m/s it completes 46 of 48, and uncapped (1.0 m/s) it completes 16 of 48.
+constexpr float kDoubleIrVMax = 0.40f;
+constexpr float kCurveTau = 0.05f;
+// Double IR needs wheel encoders: the rows give the line's direction relative to the robot, and the
+// encoders give the robot's own turn rate. Without them the curvature cannot be found.
+
 }  // namespace config
