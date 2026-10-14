@@ -48,6 +48,11 @@ Robustness, from the tests (`tests/test_core.cpp`):
   robot has a 0.6% weaker right motor, wheel slip, sensor noise and a start placed 3 cm off the line.
   Blind has no way to correct any of that. The page shows these values in the "Robot physics" panel.
 
+## Documentation
+
+`docs/PROJECT.md` explains each control idea, the code behind it, the C++ concepts, how the
+website gets its results, and every value that is approximated or invented.
+
 ## Layout
 
 ```

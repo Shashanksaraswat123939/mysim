@@ -1,0 +1,608 @@
+# Line Follower Project: how it works
+
+This document explains the whole project: what each control idea is, how the code implements it,
+the C++ concepts it relies on, how the simulator and the website use the same code, and what is
+approximated or invented along the way. For the short version, see the [README](../README.md).
+
+Contents
+
+1. [What the project is](#1-what-the-project-is)
+2. [Repository map](#2-repository-map)
+3. [The robot model](#3-the-robot-model)
+4. [The shared core: maps, planner and controller](#4-the-shared-core-maps-planner-and-controller)
+5. [The three control modes](#5-the-three-control-modes)
+6. [The simulator](#6-the-simulator)
+7. [The Arduino firmware](#7-the-arduino-firmware)
+8. [The website and how C++ reaches it](#8-the-website-and-how-c-reaches-it)
+9. [Tests and verification](#9-tests-and-verification)
+10. [Build, publish and extend](#10-build-publish-and-extend)
+11. [C++ concepts used](#11-c-concepts-used)
+12. [Glossary](#12-glossary)
+13. [What is approximated or invented](#13-what-is-approximated-or-invented)
+
+---
+
+## 1. What the project is
+
+A line-following robot is a small vehicle that steers along a black tape on the floor, using
+reflectance sensors that see the tape. This project has three parts that share one C++ codebase:
+
+- **Firmware** for an Arduino Mega 2560, which drives a real robot.
+- **A simulator**, which runs the same firmware controller against a model of a robot.
+- **A website**, which shows the simulator running in the browser, with results the C++ computes.
+
+The point of the simulator is to compare three ways of driving the same route:
+
+| Mode | Idea in one line |
+|---|---|
+| Normal PID | Steer toward the tape using only the sensors. |
+| Full map (blind) | Know the whole route in advance and replay a planned speed profile, with no sensing. |
+| Full map + IR correction | The same plan, plus sensor feedback that corrects drift and bridges gaps. |
+
+The simulator answers "what would happen if"; it does not measure a real robot. Section 13 lists
+every value that is guessed.
+
+## 2. Repository map
+
+```
+firmware/LineFollower/     Arduino sketch + the control code it shares with the simulator
+  LineFollower.ino         setup() and loop() for the real robot
+  config.h                 geometry, limits and tuning constants (the robot's beliefs)
+  track.h/.cpp             a map as a list of straights, arcs and gaps
+  maps.h/.cpp              the six maps
+  planner.h/.cpp           the racing speed profile for a whole map
+  line_controller.h/.cpp   the three control modes and the sensor line estimate
+  mathlite.h               sin, cos, sqrt without a C library
+  hardware.h/.cpp          Arduino-only: pins, sensor calibration, motor driver, button
+
+sim/                       the simulated robot and the WebAssembly bindings
+  world.h/.cpp             plant (robot physics), sensors, ground truth, outcomes
+  wasm_exports.cpp         the C functions the web page calls
+  wasm_runtime.cpp         memcpy and memset for WebAssembly
+
+tests/
+  test_core.cpp            host unit tests and simulation checks (about 2,400 checks)
+  hil/Arduino.h            a mock of the Arduino API for host builds
+  hil/hil_main.cpp         runs the real sketch's setup() and loop() against the simulated robot
+
+tools/export_results.cpp   runs every map in every mode and writes results.json
+
+web/
+  template.html            the page source, with placeholders for the WebAssembly and the results
+  line_follower_sim.html   the built, self-contained page (committed)
+
+scripts/
+  build.sh                 tests, hardware-in-the-loop run, WebAssembly, results, page
+  embed_wasm.py            puts the WebAssembly and results.json into the page
+  publish_pages.sh         pushes build/site to the gh-pages branch
+
+docs/PROJECT.md            this document
+```
+
+## 3. The robot model
+
+The robot is a **differential-drive** vehicle: two independently driven wheels on one axle. Turning
+comes from driving the wheels at different speeds.
+
+Two numbers describe its motion:
+
+- **Forward speed** `v`: the average of the two wheel speeds, `v = (vLeft + vRight) / 2`.
+- **Turn rate** `ω` (omega): how fast it rotates, `ω = (vRight - vLeft) / wheelBase`.
+
+So, to drive at speed `v` and turn at rate `ω`, the firmware sends:
+
+```
+left  = v - ω · wheelBase/2      (the inside wheel is slower on a left turn)
+right = v + ω · wheelBase/2
+```
+
+This is `Command` in `line_controller.cpp`. Everything else in the project either produces `v` and
+`ω` or turns them into wheel speeds.
+
+The robot has five **reflectance sensors** in a row across the front of the sensor bar. Each reads
+high over the black tape and low over the white floor. The sensor bar sits 40 mm ahead of the axle,
+with 12 mm between sensors. The tape is 20 mm wide. The wheelbase is 90 mm.
+
+These are the robot's **beliefs** about itself: they live in `config.h` and the firmware uses them
+directly. The simulator's "real" robot is deliberately different (section 6).
+
+## 4. The shared core: maps, planner and controller
+
+These files are compiled into the Arduino sketch, the host tests, the hardware-in-the-loop run and
+the WebAssembly. There is only one copy of each idea.
+
+### 4.1 Maps: `track.h`, `track.cpp`, `maps.h`, `maps.cpp`
+
+A map is a **list of segments**, each one a straight, an arc or a gap:
+
+```cpp
+Straight(0.60f)          // 60 cm straight
+LeftArc(90, 0.30f)       // turn left 90 degrees on a 30 cm radius
+RightArc(45, 0.15f)      // turn right 45 degrees on a 15 cm radius
+Gap(0.06f)               // 6 cm with no painted line
+```
+
+Each `Segment` stores its length, its **curvature** (`1/radius`, positive for a left turn, negative
+for a right turn, zero for a straight), and whether the line is present. Curvature is the key
+quantity: it says how sharply the path bends at each point, so the robot knows how fast it can go
+and how far to turn.
+
+`Track` stores the list and answers two questions by walking the segments:
+
+- `curvatureAt(s)`: the curvature at distance `s` along the route.
+- `lineAt(s)`: whether the tape is painted at distance `s`.
+
+`s` is **arc length**: the distance measured along the route, not straight-line distance. Using arc
+length as the single coordinate for "where am I on the map" is what lets the plan and the map line up.
+
+The six maps in `maps.cpp`:
+
+| Map | Length | What it tests |
+|---|---|---|
+| Warm-Up Oval | 4.58 m | Four gentle 90° corners on long straights. |
+| Chicane | 2.29 m | S-bends with 15 cm radius. |
+| Hairpin Alley | 2.84 m | Three 180° turns at 10 cm radius. |
+| Dashed Line | 2.61 m | Gaps of 6 to 10 cm in the painted line. |
+| Zig-Zag | 1.85 m | 90° corners at 8 cm radius. |
+| Sweepers | 5.00 m | Fast, wide bends where speed matters most. |
+
+Maps are C++ data. To add one, write a new `Segment` list and add it to `kMaps`.
+
+### 4.2 The racing plan: `planner.h`, `planner.cpp`
+
+The planner answers: **at each point on the map, how fast can the robot go?** It produces a speed
+profile `v(s)` for the whole route, computed once before the run.
+
+The idea is a **grip limit**. On a bend of curvature `κ`, the robot must accelerate sideways at
+`v²·κ`. If that exceeds the grip limit `aLat`, the robot slides off the line. So the speed in a corner
+is capped at:
+
+```
+v ≤ sqrt(aLat / |κ|)
+```
+
+On a straight (`κ = 0`) the cap is the top speed. The planner then makes two passes to respect the
+acceleration and braking limits:
+
+1. **Per-point limit.** Each sample gets the top speed, or the grip-limited speed in a corner. Each
+   sample uses the largest curvature of itself and its two neighbours, so a corner that begins
+   between two samples still slows the robot before it arrives.
+2. **Forward pass.** Walking from the start, the speed at each sample cannot exceed what the
+   acceleration limit allows from the previous sample: `v[i]² ≤ v[i-1]² + 2·aAcc·Δs`.
+3. **Backward pass.** Walking from the finish, the speed cannot exceed what the braking limit allows
+   to reach the next sample: `v[i]² ≤ v[i+1]² + 2·aBrake·Δs`.
+
+The result respects grip, acceleration and braking, and it is the fastest such profile. The plan
+starts and ends at `kLaunchSpeed` (0.15 m/s). Its samples are 2 cm apart, and `build()` adjusts the
+spacing slightly so they land exactly on the start and finish.
+
+`idealLapTime()` integrates `Δs / v` over the samples. It is the time if the robot followed the
+plan perfectly, which is why it is shown as "planned lap".
+
+The plan stores up to 410 floats (about 1.6 KB), which covers 8 m of map. That is why the firmware
+needs a Mega 2560 rather than an Uno.
+
+Note that a line follower cannot cut corners, so "racing line" here means the **best speed at each
+point**, not a different path.
+
+### 4.3 The line estimate: `estimateLine()`
+
+Each control tick the robot has five readings from 0 (white) to 1 (black). The line's position across
+the bar is estimated as a **weighted average** of the sensor positions, with the readings as weights:
+
+```
+offset = Σ (reading_i · x_i) / Σ reading_i
+```
+
+where `x_i` is sensor `i`'s lateral position: sensor 0 is the far left, with the largest positive
+position. Positive offset means the line is to the robot's left.
+
+If the total reading is below 0.4, the line is treated as **not seen**. This covers gaps and runs off
+the tape.
+
+The weighted average is cheap and smooth, but it has a limit: when the line moves beyond the outer
+sensors, the estimate stops at the sensor edge. The offset cannot go past about ±2.4 cm in practice.
+That limit shapes the whole controller design.
+
+### 4.4 Shared plumbing
+
+- **`Tuning`** holds the controller gains and base speed.
+- **`Command`** holds the two wheel speeds and a status (`Driving`, `Finished`, `GaveUp`).
+- **`LineController::update(sensors, dt)`** is called once per control tick and returns a `Command`.
+  The controller is the only part of the robot that makes decisions.
+
+## 5. The three control modes
+
+All three live in `LineController::update()` in `line_controller.cpp`. Every control tick they follow
+the same pattern: compute a turn rate `ω` and speed `v`, then convert them to wheel speeds.
+
+### 5.1 Normal PID
+
+**What it is.** PID is a feedback controller: it measures an error and pushes back in proportion to
+the error (P), its accumulated history (I) and how fast it is changing (D). Here the error is the
+line's offset, and the output is the turn rate.
+
+```
+ω = Kp·e + Ki·∫e dt + Kd·de/dt
+```
+
+- **P term** (`Kp·e`): steer harder when the line is further away.
+- **I term** (`Ki·∫e`): remove any steady error. It is clamped so it cannot grow without limit, which
+  is called **anti-windup**. The clamp is `kIntegralLimit = 1 rad/s` on the I contribution.
+- **D term** (`Kd·de/dt`): react to how fast the error is changing. It damps oscillation. The derivative
+  is filtered with a 30 ms time constant (`kDerivativeTau`), because sensor noise would otherwise be
+  amplified by the 500 Hz loop.
+
+**How it runs.** No map is used. Each tick:
+
+1. Estimate the offset. If the line is in a gap, hold the last known offset.
+2. Work out the gains for the current base speed (see gain scheduling below).
+3. Compute `ω` with PID on the offset.
+4. Set the speed from a **governor**: `v = speed / (1 + slowdown·|ω| + offsetGain·|offset|)`.
+   The robot slows when it is turning hard or far from the line.
+5. If the line has been unseen for more than 0.6 s, give up.
+
+**Gain scheduling.** The right steering gains depend on speed. At higher speed the robot covers more
+distance per control step, so a stiffer loop is needed to react in time. The gains are blended
+linearly between two sets, at 0.25 m/s and 0.50 m/s:
+
+| Parameter | At 0.25 m/s | At 0.50 m/s |
+|---|---|---|
+| Kp | 80 | 160 |
+| Kd | 8 | 14 |
+| Governor, steering term | 0.5 | 1.0 |
+| Governor, offset term | 0 | 80 per metre |
+
+Below 0.25 m/s the low set is used. The base speed is the slider on the page, from 0.20 to 0.90 m/s.
+
+**Why the governor is there.** A pure PID with the same gains has to hold the line through tight
+corners while the sensors only see 2.4 cm either side. On 8 to 10 cm radius corners the required
+steering is more than the sensor bar can follow, so the robot loses the tape. Slowing down when the
+steering demand rises gives the loop time to catch up. Without the governor, Normal PID failed the
+Hairpin and Zig-Zag maps at every base speed tested from 0.15 to 0.30 m/s.
+
+**What it cannot do.** It has no idea what is ahead. It cannot slow before a corner it has not reached
+yet. That is the reason for the map-based modes.
+
+### 5.2 Full map (blind)
+
+**What it is.** Feed-forward control: rather than reacting to the line, the robot predicts the
+correct turn rate from the plan and the map, and applies it.
+
+```
+v = plan.speedAt(s)
+ω = v · κ(s)            // the turn rate that follows the curve at speed v
+```
+
+The key is that `κ(s)` depends on **where the robot is along the route**, and the robot does not know
+that exactly. It estimates `s` by **dead reckoning**: adding the planned speed times the time step
+every tick:
+
+```
+s += v · dt
+```
+
+so `s` is what the robot believes its progress is, not where it actually is.
+
+**What it does not do.** The blind controller never reads the sensors, and it never reads the wheel
+speeds either. It assumes the commanded speeds are achieved exactly. Whenever the real robot drives
+slightly differently from the command, the error in `s` and in the actual position grows, and nothing
+corrects it.
+
+It finishes when `s` reaches the end of the map. That is a belief, not a measurement: the robot has
+no sensors to see that it has reached the finish.
+
+**How the simulator decides it drifted off.** The simulator knows the true position, so it checks
+whether the real robot is more than 35 mm from the line for more than 0.25 s. That check is in the
+simulator only (section 6.4). The controller never sees it.
+
+### 5.3 Full map + IR correction
+
+**What it is.** The blind controller's feed-forward, plus PID on the sensor offset. The feed-forward
+gets the robot most of the way around the bend, and the PID corrects what is left over.
+
+```
+v = plan.speedAt(s)
+ω = v · κ(s) + Kp·e + Ki·∫e dt + Kd·de/dt      (PID only when the line is seen)
+```
+
+with `Kp = 80`, `Ki = 2`, `Kd = 8`, the same gains as the low-speed Normal PID set.
+
+**Gaps.** When the line is unseen, the PID term is switched off and the feed-forward carries the
+robot across the gap. The derivative memory is cleared, so the derivative does not spike when the line
+returns. The robot only gives up if the line stays unseen for more than 0.6 s.
+
+**The end of the route.** Blind finishes when `s` reaches the end. The IR mode instead keeps following
+the tape past the dead-reckoned end until it actually disappears, and it reports `Finished` only if
+`s` is past the end. A tape ends at the finish, so the sensors can see the finish directly.
+
+**What it still cannot fix.** The feed-forward still uses the dead-reckoned `s`. If `s` is wrong at a
+corner, the feed-forward turns the robot at the wrong place. The PID corrects the offset that results,
+but it does not correct `s` itself. In simulation traces, a few centimetres of error in `s` at an arc
+exit left the robot a fraction of a radian short of the tangent. The sensors could correct the position
+but not the heading error quickly enough, and that is the failure mode to watch on hardware.
+
+## 6. The simulator
+
+The simulator is in `sim/`. It runs the **same** `LineController` as the firmware, unchanged. What it
+adds is a model of the physical robot and of the world.
+
+### 6.1 The plant: `World::actuate()`
+
+The "real" robot is `PlantParams kRealRobot`:
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `leftGain` | 1.000 | Left motor delivers 100% of its command. |
+| `rightGain` | 0.994 | Right motor delivers 99.4%, a steady drift. |
+| `wheelNoise` | 0.03 m/s per √s | Random wheel slip, scaled to the time step. |
+| `sensorNoise` | 0.04 | Standard deviation of sensor noise, on a 0 to 1 scale. |
+| `start` | (−0.03, 0.008) m, 0.03 rad | Placed slightly off the line, as by hand. |
+
+Each control tick the wheel speeds move towards the commanded speeds with a first-order lag:
+
+```
+wheel += (command · gain − wheel) · (dt / τ) + noise
+```
+
+with `τ = 0.04 s`. Then the pose is integrated from the actual wheel speeds using the differential-drive
+equations from section 3, with the heading updated first so the motion follows the new heading.
+
+The controller is never told any of these values.
+
+### 6.2 The sensors: `World::sense()`
+
+For each sensor the simulator finds the **nearest point on the true centre line** and the distance
+`d` to it. The reading is:
+
+- 1 when `d` is within half the line width (10 mm),
+- falling linearly to 0 over the next 6 mm,
+- 0 everywhere if the tape is absent at that point,
+
+plus Gaussian noise, clamped to 0 to 1.
+
+The nearest point is found by searching a window of 40 samples either side of the last known index.
+That keeps the search cheap at 500 Hz and works because the robot only moves a few millimetres per
+tick.
+
+### 6.3 Ground truth and outcomes: `World::judge()`
+
+The simulator knows the true position, so it can decide what really happened:
+
+- **Finished:** the true progress is within 4 cm of the end of the map.
+- **Derailed:** the true offset is more than 35 mm for more than 0.25 s. This is how "drifted off the
+  line" is decided. It is set by the sensor reach, not a physical law.
+- **Stopped:** the controller gave up (line unseen for 0.6 s) before the end.
+- **Timed out:** 40 s elapsed.
+
+The true offset is measured against the centre line, with the same sign convention as the estimate: positive
+means the line is to the robot's left.
+
+### 6.4 The loop
+
+`World::tick()` runs one control step: sense, then the controller, then actuate, then judge. The step
+is 2 ms (500 Hz). `advance(seconds)` runs as many steps as fit, so the browser can run at 1×, 4× or 16×.
+`runToEnd()` runs headless, which the comparison table uses.
+
+`World::start()` builds the centre line from the map by integrating the curvature in 1 cm steps, and
+builds the plan. The random generator is a simple linear congruential generator, seeded per run, so
+every run is repeatable.
+
+## 7. The Arduino firmware
+
+### 7.1 `LineFollower.ino`
+
+- `setup()` starts the serial port, sets up the hardware, builds the map and the plan, and then
+  calibrates the sensors by spinning in place for two seconds.
+- `loop()` waits for the button. Once pressed, it runs the control loop at 500 Hz: read the sensors, run
+  the controller, drive the motors. It stops when the controller reports `Finished` or `GaveUp`, and
+  prints telemetry every 100 ms.
+
+The map and mode are chosen with two constants at the top: `kSelectedMap` and `kSelectedMode`.
+
+### 7.2 `hardware.h` and `hardware.cpp`
+
+- **Sensors:** `readSensors()` maps each raw reading to 0 to 1, using the calibrated black and white
+  levels. Black reads low on a reflectance sensor, so the scale is inverted.
+- **Calibration:** `calibrateSensors()` drives the wheels in opposite directions for two seconds, so the
+  sensor bar sweeps across the tape. It records the lowest and highest readings for each sensor.
+- **Motors:** `driveWheels()` converts a speed in m/s to a PWM duty cycle, using `kWheelMaxSpeed` as
+  full scale, and sets the direction pins of the TB6612FNG driver.
+- **Button:** `buttonPressed()` returns true once per press, with a 400 ms debounce.
+
+### 7.3 Pin map
+
+Set in `hardware.h`: sensors on A0 to A4, IR emitter pin 27, button on pin 2 (to ground), motor driver
+on pins 22 to 26 (two direction pins and one PWM pin per side, plus standby), status LED on the
+built-in LED.
+
+## 8. The website and how C++ reaches it
+
+The page is one HTML file that contains a WebAssembly module, base64-encoded. No server is needed.
+
+### 8.1 The chain from C++ to the page
+
+1. **Compile.** `scripts/build.sh` compiles the shared core and `sim/` to WebAssembly with clang
+   (`--target=wasm32`, freestanding, no libc). The result is `sim.wasm`, about 13 KB, with no imports.
+2. **Export.** `sim/wasm_exports.cpp` exposes plain C functions with `export_name` attributes. The
+   page calls them: `run_start`, `run_advance`, `run_centre`, `run_sensors`, `run_trail`, `headless_lap`,
+   and others. Strings such as map and mode names come from the C++ too, through `map_name()` and
+   `mode_name()`.
+3. **Compute the results.** `tools/export_results.cpp` runs every map in every mode, once with the default
+   seed and once with each of 40 seeds, and writes `results.json`.
+4. **Embed.** `scripts/embed_wasm.py` replaces two placeholders in `web/template.html`: the base64 WebAssembly
+   and the results JSON. The output is `web/line_follower_sim.html`.
+5. **Publish.** `scripts/publish_pages.sh` pushes `build/site` (the page as `index.html`, `results.json` and
+   `.nojekyll`) to the `gh-pages` branch. GitHub Pages then serves it, once enabled in the repository
+   settings.
+
+### 8.2 What the page does
+
+- On load it fills the comparison table from the embedded results, so the table is right before anything
+  runs.
+- **Start / Pause / Reset** call `run_start` and `run_advance`. Each animation frame advances the simulation
+  by the elapsed time times the speed multiplier.
+- The drawing reads the centre line, the planned speeds, the sensor positions and readings, and the trail
+  from WebAssembly memory, and draws them on a canvas. The robot's size, sensor spacing and line width
+  come from `geometry()`, so the drawing matches the firmware's numbers.
+- **Run every combination** calls `headless_lap` for each map and mode, so the table is recomputed live in
+  WebAssembly.
+
+The only numbers in the page's JavaScript are display settings (the slider range, the speed multipliers and
+colours). Every robot, map and result value comes from the C++.
+
+### 8.3 Light theme
+
+The page is light only. It does not follow the operating system's dark mode. Colours are CSS variables on
+`:root`, chosen to avoid pure white and pure black.
+
+## 9. Tests and verification
+
+`scripts/build.sh` runs four checks. A failure stops the build.
+
+1. **Host tests** (`tests/test_core.cpp`, about 2,400 checks):
+   - Math: the sine and cosine approximations stay within 5e-4 over ±10 radians.
+   - Sensor estimate: symmetric and one-sided readings give the expected offset sign.
+   - Track geometry: map lengths are in range, and left arcs curve left.
+   - Plan limits: at every sample, the speed respects the grip, acceleration and braking limits.
+   - Controllers: blind replays the plan on a straight, ignores white sensors, and finishes; IR gives up when
+     the line is lost; PID turns the right way.
+   - Simulation: the mixed mode finishes every map with the default run and with other seeds; blind finishes
+     every map with a perfect plant; Normal PID finishes every map on the default run; the mixed mode is
+     faster than Normal PID wherever both finish; results are deterministic.
+2. **Hardware-in-the-loop** (`tests/hil/`): the real sketch's `setup()` and `loop()` are compiled against a mock
+   Arduino API, and every pin is wired to the simulated robot. The mock maps the sensor values to raw readings
+   (900 for white, 100 for black), turns motor pin levels into wheel speeds, and advances time in 100 µs steps.
+   The check passes if the sketch drives the robot to the finish. It is the closest test to the real firmware
+   available without a board.
+3. **WebAssembly build** with `-Wall -Wextra`.
+4. **Results export** writes `results.json`, and the embed step checks that the JSON is valid.
+
+The page itself was checked in headless Chromium: it loads with no console errors, the run and comparison
+work, and the layout fits 1280×800, 1366×768 and 1440×900 without horizontal scrolling.
+
+What the tests do **not** check: AVR compilation, real sensor behaviour, real motor behaviour, or timing on a
+board. See section 13.
+
+## 10. Build, publish and extend
+
+```sh
+scripts/build.sh            # tests, hardware-in-the-loop, WebAssembly, results, page
+scripts/publish_pages.sh    # push build/site to the gh-pages branch
+```
+
+Requirements: `g++` with C++11, `clang++` with the `wasm32` target and `wasm-ld`, and `python3`.
+
+To extend:
+
+- **Add a map.** Write a `Segment` list in `maps.cpp`, add it to `kMaps`, and increase `kMapCount`. The plan
+  holds 8 m at most.
+- **Change a gain.** Edit `config.h`. Run `scripts/build.sh`: the tests and the results are recomputed, so you
+  see the effect on every map.
+- **Change the robot's beliefs** (wheelbase, sensor layout, limits): edit `config.h`. The simulator's real
+  robot is in `sim/world.h` (`kRealRobot`), so you can keep the two apart on purpose.
+- **Flash the robot.** Open `firmware/LineFollower/` in the Arduino IDE, choose the map and mode in
+  `LineFollower.ino`, and upload to a Mega 2560.
+
+## 11. C++ concepts used
+
+- **Header and source split.** Each module has a `.h` with declarations and a `.cpp` with the code. The
+  Arduino IDE compiles every `.cpp` in the sketch folder, so the shared core sits in the same folder.
+- **`constexpr` values and functions.** Constants like `config::kKp` are compile-time values. The `Straight`,
+  `LeftArc` and similar helpers are `constexpr` too, so the maps are fixed at compile time.
+- **Aggregate initialisation.** `Segment{length, curvature, line}` and `Command{left, right, status}` build
+  structs with braces.
+- **`enum class`.** `Mode`, `RunStatus` and `Outcome` are scoped enumerations, so their values cannot be
+  confused with integers or with each other.
+- **Classes without constructors.** `Track`, `RacingPlan`, `LineController` and `World` use an explicit
+  `init`/`begin`/`start` method rather than a constructor. The WebAssembly build has no startup code, so
+  global objects must not need constructors.
+- **Static storage, no heap.** Everything is a fixed-size array or a member. There is no `new`, no
+  `std::vector`, no `std::string`. That suits both the Arduino's small RAM and WebAssembly's lack of a heap
+  allocator in this build.
+- **`const` references and pointers.** Controllers get `const Track*` and `const RacingPlan*`, so they can read
+  the map and plan but not change them.
+- **`switch` on enums** with a fall-through return at the end, so every mode is handled.
+- **Namespaces.** `config`, `mlite`, `sim` group related constants and helpers, which avoids name clashes with
+  the Arduino core.
+- **`static` at file scope and in anonymous namespaces.** Internal helpers such as `driveMotor` and the
+  `World` instance in `wasm_exports.cpp` are not visible outside their file.
+- **`inline` functions in headers.** `mathlite.h` and small accessors are inline, so each translation unit can
+  use them without a link error.
+- **Fixed-width integers** (`uint8_t`, `uint16_t`, `uint32_t`) for sizes, counts and the random generator, so
+  the same code means the same thing on AVR and on the host.
+- **`__builtin_sqrtf` and `__attribute__((export_name))`.** The first is a compiler builtin for square root,
+  which avoids linking libm. The second makes a C function visible in the WebAssembly module under a fixed name.
+- **Freestanding C++.** The WebAssembly build uses `-ffreestanding -nostdlib -fno-exceptions -fno-rtti`, so
+  the code cannot rely on the C library or on exceptions. `wasm_runtime.cpp` supplies `memcpy` and `memset`.
+- **Static assertions.** `static_assert` in `maps.cpp` checks that the map table has `kMapCount` entries, so a
+  mismatch fails at compile time.
+- **Testing without a framework.** `CHECK(cond)` is a macro that counts and reports failures, and the test
+  binary's exit code signals success.
+
+## 12. Glossary
+
+- **Arc length `s`:** distance along the route, the one coordinate the map and plan share.
+- **Blind (open loop):** a controller that acts on a model or a plan and does not read its outputs.
+- **Centre line:** the path the robot should follow, at the middle of the tape.
+- **Curvature `κ`:** how sharply the path bends, `1/radius`.
+- **Dead reckoning:** estimating position by adding up predicted motion, without external measurements.
+- **Derailed:** the simulator's term for the robot having drifted out of the sensors' reach for too long.
+- **Differential drive:** two independently driven wheels that steer by speed difference.
+- **Derivative filter:** smoothing applied to the D term so sensor noise is not amplified.
+- **Feed-forward:** a control action computed from a model of what should happen, before any error appears.
+- **Gain scheduling:** choosing controller gains from an operating condition, here the base speed.
+- **Governor:** a rule that lowers the speed when the controller is working hard.
+- **Ground truth:** what the simulator knows about the real position, which the controller cannot see.
+- **Grip limit:** the maximum sideways acceleration `aLat` before the robot slides.
+- **Hardware-in-the-loop:** running the real firmware against a simulated plant.
+- **Anti-windup:** limiting the integral term so it cannot grow without bound while the output is saturated.
+- **Offset:** the lateral distance from the robot's centre to the line. Positive means the line is to the left.
+- **Plan:** the speed profile `v(s)` computed for the whole map.
+- **Plant:** the physical robot being controlled, here modelled in `sim/world.cpp`.
+- **Reflectance sensor:** an optical sensor that reads how much light comes back from the surface below it.
+- **PID:** proportional, integral and derivative control.
+- **Seed:** the starting value of a random generator, so a run can be repeated exactly.
+
+## 13. What is approximated or invented
+
+Nothing in the simulator was measured on your robot. Every value below is a guess, a model choice or a
+judgement. The sections above say how each one is used; this list says where each one could differ from
+the real world.
+
+| Item | Value in the project | Where | How it could differ on real hardware |
+|---|---|---|---|
+| Right motor strength | 0.994 of the left | `sim/world.h` | Real mismatch changes with battery, load and temperature. |
+| Motor response | First-order lag, 0.04 s | `sim/world.h` | Real motors have deadband, nonlinear speed-to-PWM curves and current limits. |
+| Top wheel speed | 1.20 m/s at full PWM | `config.h` | A guess; the real top speed may be lower. |
+| Wheel slip | Random walk, 0.03 m/s per √s | `sim/world.h` | Real slip is mostly sideways on arcs, which is not modelled. |
+| Noise distribution | Sum of four uniform values | `sim/world.cpp` | Real noise has heavier tails, so rare bad readings are under-represented. |
+| Sensor response | Full reading over the tape, falling off over 6 mm | `sim/world.cpp` | Real reflectance is blurred and nonlinear, and varies between sensors. |
+| Sensor layout | 5 sensors, 12 mm apart, 40 mm ahead | `config.h` | Not measured on hardware. The ±2.4 cm reach drives the controller design. |
+| Line width | 20 mm, ideal | `config.h` | Real tape has edges, joins and wear. |
+| Wheelbase | 90 mm | `config.h` | Assumed. |
+| Start placement | 3 cm behind the start, 0.03 rad off | `sim/world.h` | A chosen hand placement; a better placement would help blind a lot. |
+| Maps | Six routes, idealised arcs and gaps | `maps.cpp` | Designed for the simulator. Real tape has tighter transitions. |
+| Grip, acceleration, braking | 1.5, 2.0 and 2.5 m/s² | `config.h` | Not measured on your floor. The plan assumes they are always met. |
+| Launch speed | 0.15 m/s | `config.h` | Assumed. |
+| Control loop | Exact 500 Hz | `sim/world.cpp` | Real loops jitter, and `analogRead` takes time that is not modelled. |
+| Lost-line timeout | 0.6 s | `config.h` | Chosen; a real robot may need a different value. |
+| Derail rule | More than 35 mm for 0.25 s | `sim/world.h` | A judgement set from sensor reach, not a physical law. |
+| Finish rule | Within 4 cm of the end, by ground truth | `sim/world.h` | A real robot would use a finish marker or the end of the tape. |
+| Run limit | 40 s | `sim/world.h` | Chosen. |
+| "Seen" threshold | Sum of readings above 0.4 | `line_controller.cpp` | Chosen; depends on the real sensors. |
+| PID gains and governor | Kp, Kd, Ki and governor values | `config.h` | Tuned on this simulator and tested on its own noise model, so they will need retuning. |
+| Calibration levels | Raw 100 for black, 900 for white | `hardware.cpp` and the HIL mock | The mock mapping is invented, so real calibration is untested. |
+| Test seeds | 40 noise seeds per map | `tools/export_results.cpp` | The robot is the same in every seeded run; only noise changes. |
+| Microcontroller | Mock Arduino API on the host | `tests/hil/Arduino.h` | Not compiled with avr-gcc. Timing, RAM use and float speed are unverified on a board. |
+
+The key risks, in order:
+
+1. **Motor mismatch and start error** decide the blind result. A different real mismatch could change it
+   completely.
+2. **Sensor response** decides how well any sensor-based controller can work. Measure it first.
+3. **Gains** were tuned on this model, so they should be retuned on the robot before the numbers mean anything.
+4. **The planner's grip limit** is a guess that the plan depends on; a real floor may allow more or less.
+
+Measure these on the robot, update `sim/world.h` (`kRealRobot`) and `config.h`, and rerun
+`scripts/build.sh` to see how the results move.
