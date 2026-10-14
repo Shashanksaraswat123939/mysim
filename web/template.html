@@ -233,6 +233,8 @@
 "use strict";
 // The WebAssembly module built from the C++ sources, embedded by scripts/build.sh.
 const WASM_BASE64 = "__WASM_BASE64__";
+// Results written by tools/export_results.cpp during the build, from the same C++.
+const RESULTS = __RESULTS_JSON__;
 
 const $ = (id) => document.getElementById(id);
 const dec = new TextDecoder();
@@ -345,6 +347,7 @@ function setup() {
 
   $("mapSummary").textContent = str(ex.map_summary(0));
   bindEvents();
+  showPrecomputed();
   loadRun();
   requestAnimationFrame(frame);
 }
@@ -604,11 +607,29 @@ function runComparison() {
   }
   // Put the live run back on the page's selection.
   loadRun();
+  renderTable(rows.map((r) => ({
+    name: r.name,
+    planLap: r.planLap,
+    laps: r.laps,
+    labels: r.outs.map((o) => str(ex.outcome_short(o))),
+  })));
+  $("compareNote").textContent = "Live: each combination was just simulated to the end in WebAssembly, with the same robot and noise seed. Green marks the fastest finished lap on each map.";
+}
 
+// Fills the comparison table. Each row: name, planLap, laps (seconds, or -1), labels (outcome text for failures).
+function renderTable(rows) {
+  const body = $("resultsBody");
+  body.innerHTML = "";
   for (const r of rows) {
     const tr = document.createElement("tr");
-    const bestLap = Math.min(...r.laps.filter((l) => l > 0));
-    tr.innerHTML = `<td>${escapeHtml(r.name)}</td><td class="num">${r.planLap.toFixed(2)} s</td>`;
+    const finished = r.laps.filter((l) => l > 0);
+    const bestLap = finished.length ? Math.min(...finished) : -1;
+    const name = document.createElement("td");
+    name.textContent = r.name;
+    const plan = document.createElement("td");
+    plan.className = "num";
+    plan.textContent = r.planLap.toFixed(2) + " s";
+    tr.append(name, plan);
     r.laps.forEach((lap, i) => {
       const td = document.createElement("td");
       td.className = "num";
@@ -616,14 +637,31 @@ function runComparison() {
         td.textContent = lap.toFixed(2) + " s";
         if (lap === bestLap) td.classList.add("best");
       } else {
-        td.textContent = str(ex.outcome_short(r.outs[i]));
+        td.textContent = r.labels[i];
         td.classList.add("fail");
       }
       tr.appendChild(td);
     });
     body.appendChild(tr);
   }
-  $("compareNote").textContent = "Lap times are seconds from the start line to the finish, with the same robot and noise seed for every run. Green marks the fastest finished lap on each map.";
+}
+
+// Shows the results the C++ build computed at publish time, before anything is run.
+function showPrecomputed() {
+  const rows = RESULTS.maps.map((m) => ({
+    name: m.name,
+    planLap: m.planLap,
+    laps: m.modes.map((md) => md.defaultLap),
+    labels: m.modes.map((md) => md.defaultOutcome),
+  }));
+  renderTable(rows);
+  const n = RESULTS.seeds;
+  const totalRuns = RESULTS.maps.length * n;
+  const parts = RESULTS.maps[0].modes.map((md, i) => {
+    const finished = RESULTS.maps.reduce((sum, m) => sum + m.modes[i].seedsFinished, 0);
+    return `${md.mode} ${finished}/${totalRuns}`;
+  });
+  $("compareNote").textContent = `Built by the C++ simulator (tools/export_results.cpp) for this site: the default run for each combination, then ${n} noise seeds per map. Runs finished across all maps and seeds: ${parts.join(", ")}. Press the button to rerun them live.`;
 }
 
 function escapeHtml(s) {

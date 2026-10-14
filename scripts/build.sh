@@ -5,7 +5,8 @@
 #   2. Hardware-in-the-loop run: the Arduino sketch's own setup() and loop(), compiled
 #      against a mock Arduino API and wired to the simulated robot.
 #   3. The browser simulator: the same C++ compiled to WebAssembly and embedded in
-#      web/line_follower_sim.html.
+#      web/line_follower_sim.html, together with results the C++ computes for every map
+#      and mode (tools/export_results.cpp). scripts/publish_pages.sh pushes the site.
 #
 # Requirements: g++ (C++11), clang++ with the wasm32 target and wasm-ld, python3.
 set -euo pipefail
@@ -42,6 +43,14 @@ clang++ --target=wasm32-unknown-unknown -O2 -std=c++11 -ffreestanding -fno-excep
   -Wall -Wextra -Ifirmware/LineFollower -Isim \
   "${CORE[@]}" sim/world.cpp sim/wasm_exports.cpp sim/wasm_runtime.cpp \
   -fno-builtin-memcpy -o "$BUILD/sim.wasm"
-python3 scripts/embed_wasm.py web/template.html "$BUILD/sim.wasm" web/line_follower_sim.html
+g++ "${HOST_FLAGS[@]}" tools/export_results.cpp "${CORE[@]}" sim/world.cpp -o "$BUILD/export_results"
+"$BUILD/export_results" > "$BUILD/results.json"
+python3 scripts/embed_wasm.py web/template.html "$BUILD/sim.wasm" "$BUILD/results.json" web/line_follower_sim.html
+# The site folder that scripts/publish_pages.sh pushes to GitHub Pages.
+mkdir -p "$BUILD/site"
+cp web/line_follower_sim.html "$BUILD/site/index.html"
+cp "$BUILD/results.json" "$BUILD/site/results.json"
+touch "$BUILD/site/.nojekyll"
+echo "results: $(python3 -c "import json;r=json.load(open('$BUILD/results.json'));print(len(r['maps']),'maps x',len(r['maps'][0]['modes']),'modes, seeds',r['seeds'])")"
 
 echo "== Done"

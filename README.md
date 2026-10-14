@@ -43,7 +43,7 @@ Robustness, from the tests (`tests/test_core.cpp`):
   two things Normal PID is allowed to have: its steering gains scale up with its base speed, and it
   slows down as its steering effort and line offset grow (`kPidGain*`, `kPidSlowdown*` and
   `kPidOffsetSlowdownHigh` in `config.h`). Below 0.20 m/s it drops off on some maps.
-- Full map (blind) fails because of the robot's imperfections, not because of its logic: with a
+- Full map (blind) finishes 4 of 240 seeded runs (`build/site/results.json`, from the C++ build), and none on the default run. It fails because of the robot's imperfections, not because of its logic: with a
   perfect plant (`kIdealRobot` in `sim/world.h`) it completes all six maps. The simulated real
   robot has a 0.6% weaker right motor, wheel slip, sensor noise and a start placed 3 cm off the line.
   Blind has no way to correct any of that. The page shows these values in the "Robot physics" panel.
@@ -74,6 +74,14 @@ scripts/
   build.sh               tests, hardware-in-the-loop run, WebAssembly build and page build
   embed_wasm.py          embeds the WASM into the page
 ```
+
+## Results on the website
+
+`scripts/build.sh` runs `tools/export_results.cpp`, which simulates every map in every mode
+(the default run, plus 40 noise seeds per map) and writes `results.json`. That JSON is embedded in
+the page, so the comparison table is correct on first load, and it is also in the published site.
+`scripts/publish_pages.sh` pushes `build/site` to the `gh-pages` branch. Enable GitHub Pages once
+in Settings → Pages → Deploy from a branch → `gh-pages`, `/ (root)`.
 
 ## Build and test
 
