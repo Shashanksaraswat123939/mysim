@@ -38,6 +38,11 @@ __attribute__((export_name("geometry"))) float geometry(int which) {
     case 4: return (float)config::kSensorCount;
     case 5: return sim::kDerailOffset;
     case 6: return config::kRearRowDistance;
+    case 7: return config::kWheelRadius;
+    case 8: return config::kWheelWidth;
+    case 9: return config::kBodyLength;
+    case 10: return config::kBodyHeight;
+    case 11: return config::kBodyClearance;
   }
   return 0.0f;
 }

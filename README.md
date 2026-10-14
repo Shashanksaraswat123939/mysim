@@ -135,3 +135,10 @@ simulated robot (a hardware-in-the-loop check), and then rebuilds `web/line_foll
   from the IR sensors, but not along-track progress, so a large speed error would show up as a
   wrong feed-forward at corners.
 - Maps must be at most 8 m long (the planner's buffer).
+
+## 3D view, CAD and presentation
+
+- **3D simulator.** The page draws the map and robot in 3D on a plain 2D canvas (flat polygons, no WebGL and no shaders). Cameras: 3D orbit, Top (orthographic) and Follow. The robot's size comes from `config.h`.
+- **CAD and drawings.** `python3 cad/make_cad.py` writes `cad/line_follower_robot.stl` and six engineering sheets to `docs/drawings/`: orthographic views, yaw inertia, grip and slip, wheel encoders, gaps and dashed lines, and timestamps. The board on top of the model is a dummy line follower card for practice.
+- **Presentation.** `deck/line_follower_blueprint.pptx` (built by `deck/build_deck.js`) explains the whole plan in plain language.
+- **Known gap.** The inertia sheet computes 2.8e-4 kg m2 from assumed part masses, while the simulator uses 5e-4. Weigh the real parts and rerun the script to reconcile them.

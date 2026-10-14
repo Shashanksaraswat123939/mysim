@@ -12,6 +12,12 @@ constexpr uint8_t kSensorCount = 5;       // reflectance sensors in a row
 constexpr float kSensorSpacing = 0.012f;  // distance between neighbouring sensors
 constexpr float kSensorForward = 0.040f;  // sensor bar distance ahead of the axle
 constexpr float kLineWidth = 0.020f;      // width of the black tape
+// Body, for the 3D view and the drawings. The simulator's physics uses the wheel radius too.
+constexpr float kWheelRadius = 0.020f;    // drive wheel radius
+constexpr float kWheelWidth = 0.012f;     // drive wheel width
+constexpr float kBodyLength = 0.064f;     // chassis length, centred on the axle
+constexpr float kBodyHeight = 0.022f;     // chassis height
+constexpr float kBodyClearance = 0.008f;  // gap between the floor and the chassis underside
 
 // ---- Timing and limits -----------------------------------------------------
 constexpr float kControlPeriod = 0.002f;  // 500 Hz control loop

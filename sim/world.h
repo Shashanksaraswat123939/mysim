@@ -50,7 +50,7 @@ struct PlantParams {
 // The physical robot used by default: a 0.3 kg robot on a tape or mat surface (mu 0.6),
 // a motor 0.6% weaker on the right, sensor noise and a hand-placed start.
 constexpr PlantParams kRealRobot = {
-    0.30f,  5e-4f, 0.02f, 0.6f, 0.03f, 4.0f, 1.20f, 8.0f,
+    0.30f,  5e-4f, config::kWheelRadius, 0.6f, 0.03f, 4.0f, 1.20f, 8.0f,
     1.000f, 0.994f, 0.04f, -0.03f, 0.008f, 0.03f};
 // Perfect grip and no rolling loss, for checking the controllers on their own.
 constexpr PlantParams kIdealRobot = {

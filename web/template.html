@@ -5,133 +5,97 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Line Follower Simulator</title>
 <style>
-  /* Light only. Warm off-white and dark grey rather than pure white and black, with
-     softened accents, so the page stays easy on the eyes for long sessions. */
+  /* Black, white and gray only. No colour, no gradients, no effects. */
   :root {
     color-scheme: light;
-    --bg: #f3f2ee;        /* page */
-    --panel: #fbfaf7;     /* cards */
-    --ink: #2b2a27;       /* body text, ~13:1 on the panel */
-    --muted: #66645d;     /* secondary text, ~5.5:1 on the panel */
-    --line: #e2dfd7;
-    --accent: #3d6aa8;    /* soft blue, white text ~5.6:1 */
-    --good: #2d7a4b;
-    --bad: #b04a37;
-    --warn: #966414;
-    --track: #33353a;     /* the painted tape */
-    --canvas: #fdfcf9;    /* the simulation view */
-    --sensor-off: #d2cfc5;
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --ink: #111111;
+    --muted: #6b6b6b;
+    --line: #d9d9d9;
+    --soft: #f3f3f3;
+    --canvas: #efefef;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  /* Sized for a laptop screen (about 16:10, 1280x800 to 1440x900): the simulator fills the first
-     view. The controls column sits beside it and flows down the page; it has no scroll bar of its own. */
-  header { padding: 14px 20px 0; max-width: 1280px; margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  h1 { font-size: 20px; margin: 0; }
+  header { padding: 18px 24px 0; max-width: 1320px; margin: 0 auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
   main {
-    max-width: 1280px;
+    max-width: 1320px;
     margin: 0 auto;
-    padding: 10px 20px 0;
+    padding: 14px 24px 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
     align-items: start;
-    gap: 14px;
+    gap: 16px;
   }
   @media (max-width: 900px) {
     main { grid-template-columns: minmax(0, 1fr); }
     #stageWrap { height: auto; }
   }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
-  #stage { padding: 10px; display: flex; flex-direction: column; min-height: 0; }
-  #stageWrap { position: relative; height: calc(100vh - 150px); min-height: 480px; }
-  canvas#view {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--canvas);
-    border-radius: 6px;
-  }
-  .legend { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
-  .ramp { width: 180px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, hsl(0 80% 45%), hsl(60 80% 45%), hsl(120 80% 45%)); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+  .panel h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  #stage { padding: 0; overflow: hidden; }
+  .stagebar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .stagebar label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  .stagebar .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #stageWrap { position: relative; height: calc(100vh - 190px); min-height: 460px; }
+  canvas#view { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--canvas); cursor: grab; touch-action: none; }
+  canvas#view:active { cursor: grabbing; }
+  .legend { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+  .ramp { width: 160px; height: 8px; border-radius: 1px; background: linear-gradient(90deg, #1b1b1b, #d4d4d4); border: 1px solid var(--line); }
   .legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; }
-  .controls { display: flex; flex-direction: column; gap: 12px; padding: 2px 2px 12px; }
+  .controls { display: flex; flex-direction: column; gap: 12px; padding: 0 0 12px; }
   label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
   select, input[type="range"] { font: inherit; }
-  select {
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--canvas);
-    color: var(--ink);
-  }
-  .muted { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; min-height: 2.6em; }
+  input[type="range"], input[type="radio"], input[type="checkbox"] { accent-color: #111; }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); }
+  .muted { color: var(--muted); font-size: 13px; margin: 6px 0 0; min-height: 2.6em; }
   .modes { display: flex; flex-direction: column; gap: 6px; }
-  .mode {
-    display: grid;
-    grid-template-columns: 18px 1fr;
-    gap: 1px 10px;
-    padding: 8px 12px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  .mode input { margin: 3px 0 0; accent-color: var(--accent); }
+  .mode { display: grid; grid-template-columns: 18px 1fr; gap: 1px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+  .mode input { margin: 3px 0 0; }
   .mode strong { font-weight: 600; }
-  .mode span { grid-column: 2; color: var(--muted); font-size: 13.5px; }
-  .mode:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .mode span { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+  .mode:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  button {
-    font: inherit;
-    padding: 9px 14px;
-    border-radius: 7px;
-    border: 1px solid var(--line);
-    background: var(--canvas);
-    color: var(--ink);
-    cursor: pointer;
-  }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  button:disabled { opacity: .5; cursor: default; }
-  .status {
-    font-size: 18px;
-    font-weight: 650;
-    margin: 0 0 8px;
-    min-height: 1.4em;
-  }
-  .status.ok { color: var(--good); }
-  .status.bad { color: var(--bad); }
-  .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
-  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+  button { font: inherit; padding: 8px 14px; border-radius: 3px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--ink); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; padding: 6px 12px; font-size: 13px; }
+  .seg button:first-child { border-radius: 3px 0 0 3px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 3px 3px 0; }
+  .seg button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .status { font-size: 16px; font-weight: 600; margin: 0 0 8px; min-height: 1.4em; }
+  .status.bad { text-decoration: underline; text-underline-offset: 3px; }
+  .progress { height: 4px; background: var(--line); margin-bottom: 14px; }
+  .progress > div { height: 100%; width: 0; background: var(--ink); }
   dl.stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-variant-numeric: tabular-nums; }
   dl.stats dt { color: var(--muted); }
   dl.stats dd { margin: 0; text-align: right; font-weight: 600; }
   details { margin-top: 2px; }
   details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
   details dl { margin: 10px 0 0; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
-  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
   td.num { text-align: right; }
-  td.best { color: var(--good); font-weight: 650; }
-  td.fail { color: var(--bad); }
-  .compare { max-width: 1280px; margin: 0 auto 8px; padding: 14px 16px; }
+  td.best { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  td.fail { color: var(--muted); }
+  .compare { max-width: 1272px; margin: 16px auto 8px; padding: 14px 16px; }
   details.panel > summary { cursor: pointer; list-style: none; }
   details.panel > summary::-webkit-details-marker { display: none; }
-  details.panel > summary h2::before { content: "▸ "; }
-  details.panel[open] > summary h2::before { content: "▾ "; }
-  footer { max-width: 1280px; margin: 0 auto; padding: 0 20px 20px; color: var(--muted); font-size: 12.5px; }
+  details.panel > summary h2 { margin: 0; }
+  details.panel > summary h2::before { content: "+ "; }
+  details.panel[open] > summary h2::before { content: "\2212 "; }
+  footer { max-width: 1320px; margin: 0 auto; padding: 0 24px 24px; color: var(--muted); font-size: 12.5px; }
   code { font-size: 12.5px; }
 </style>
 </head>
@@ -143,8 +107,16 @@
 
 <main>
   <section class="panel" id="stage" aria-label="Simulation view">
+    <div class="stagebar">
+      <div class="seg" id="views" role="group" aria-label="Camera">
+        <button data-view="orbit" aria-pressed="true">3D</button>
+        <button data-view="top" aria-pressed="false">Top</button>
+        <button data-view="chase" aria-pressed="false">Follow</button>
+      </div>
+      <span class="hint" id="viewHint">Drag to rotate, scroll to zoom</span>
+    </div>
     <div id="stageWrap">
-      <canvas id="view" width="960" height="720" role="img" aria-label="Top-down view of the robot on the map"></canvas>
+      <canvas id="view" width="960" height="720" role="img" aria-label="3D view of the robot on the map"></canvas>
     </div>
     <div class="legend">
       <span>Racing speed</span>
@@ -212,7 +184,7 @@
 </section>
 
 <footer>
-  Source: <code>firmware/LineFollower/</code> (the Arduino sketch and the control code it shares with this page), <code>sim/</code> (robot physics and the WebAssembly bindings), <code>tests/</code>. Rebuild with <code>scripts/build.sh</code>.
+  Source: <code>firmware/LineFollower/</code> (the Arduino sketch and the control code it shares with this page), <code>sim/</code> (robot physics and the WebAssembly bindings), <code>tests/</code>. Rebuild with <code>scripts/build.sh</code>. The robot model is a placeholder: its size comes from <code>config.h</code>, and the board on top is a dummy line follower card for practice.
 </footer>
 
 <script>
@@ -247,6 +219,8 @@ const view = {
 
 const ui = {
   running: false,
+  view: "orbit",
+  wheelAng: [0, 0],
   lastFrame: 0,
   map: 0,
   mode: 2,
@@ -362,6 +336,28 @@ function bindEvents() {
   $("showPlan").addEventListener("change", (e) => { ui.showPlan = e.target.checked; });
   $("compare").addEventListener("click", runComparison);
   window.addEventListener("resize", () => draw());
+  const hints = { orbit: "Drag to rotate, scroll to zoom", top: "Orthographic top view, scroll to zoom", chase: "Camera follows the robot, drag to look around" };
+  document.querySelectorAll("#views button").forEach((b) => {
+    b.addEventListener("click", () => {
+      ui.view = b.dataset.view;
+      document.querySelectorAll("#views button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      $("viewHint").textContent = hints[ui.view];
+      cam.zoom = 1;
+      draw();
+    });
+  });
+  let drag = null;
+  view.canvas.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY]; view.canvas.setPointerCapture(e.pointerId); });
+  view.canvas.addEventListener("pointerup", () => { drag = null; });
+  view.canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+    drag = [e.clientX, e.clientY];
+    if (ui.view === "orbit") { cam.yaw -= dx * 0.008; cam.pitch = Math.min(1.5, Math.max(0.15, cam.pitch + dy * 0.006)); }
+    if (ui.view === "chase") { cam.chaseYaw -= dx * 0.008; cam.chasePitch = Math.min(1.4, Math.max(0.12, cam.chasePitch + dy * 0.006)); }
+    draw();
+  });
+  view.canvas.addEventListener("wheel", (e) => { e.preventDefault(); cam.zoom = Math.min(6, Math.max(0.3, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
 }
 
 // Starts the chosen map and mode in C++ and reads back the geometry for drawing.
@@ -373,6 +369,8 @@ function loadRun() {
   view.count = n;
   view.centre = floats(ex.run_centre(), n * 5).slice();
   view.bounds = computeBounds(view.centre, n);
+  view.edges = computeEdges(view.centre, n);
+  ui.wheelAng = [0, 0];
   $("planLap").textContent = ex.run_plan_lap().toFixed(2) + " s";
   $("lap").textContent = "—";
   updateButtons();
@@ -402,154 +400,292 @@ function frame(ts) {
   ui.lastFrame = ts;
   if (ui.running && ex.run_outcome() === 0) {
     ex.run_advance(dt);
+    const wr = geometry(7);
+    ui.wheelAng[0] += ex.run_wheel_actual_left() / wr * dt;
+    ui.wheelAng[1] += ex.run_wheel_actual_right() / wr * dt;
   }
   if (ui.running && ex.run_outcome() !== 0) {
     ui.running = false;
     ui.outcome = ex.run_outcome();
     updateButtons();
   }
+  cam.follow += wrapPi(ex.run_pose_heading() - Math.PI / 2 - cam.follow) * 0.12;
   draw();
   updateStatus();
   requestAnimationFrame(frame);
 }
 
-// ---- Drawing: every coordinate is a metre value from the C++ simulation ----
+// ---- Drawing: a 3D view made of flat polygons on a 2D canvas (no WebGL, no shaders) ----
+// Every dimension is a number from the C++ firmware (config.h) or a metre value from the C++ simulation.
+const FOV = 40 * Math.PI / 180;
+const NEAR = 0.02;
+const LIGHT = (() => { const l = [-0.35, -0.45, 0.82]; const n = Math.hypot(...l); return l.map((v) => v / n); })();
+const cam = { yaw: -0.5, pitch: 0.95, zoom: 1, follow: 0, chaseYaw: 0, chasePitch: 0.45 };
+let robotModel = null;
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const wrapPi = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+// Camera for the current view: orbit (perspective), top (orthographic) or chase (perspective, follows the robot).
+function makeCamera(W, H) {
+  const b = view.bounds;
+  const mapW = b.maxX - b.minX + 0.3, mapH = b.maxY - b.minY + 0.3;
+  const C = { W, H, ortho: false, k: 1, fpx: H / (2 * Math.tan(FOV / 2)) };
+  let target, yaw, pitch, dist;
+  if (ui.view === "top") {
+    C.ortho = true;
+    C.k = cam.zoom * Math.min(W / mapW, H / mapH);
+    target = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 0];
+    yaw = 0; pitch = Math.PI / 2 - 0.001; dist = 10;
+  } else if (ui.view === "chase") {
+    const h = ex.run_pose_heading();
+    target = [ex.run_pose_x() + 0.05 * Math.cos(h), ex.run_pose_y() + 0.05 * Math.sin(h), 0.015];
+    yaw = cam.follow + cam.chaseYaw; pitch = cam.chasePitch; dist = 0.48 / cam.zoom;
+  } else {
+    target = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, 0];
+    yaw = cam.yaw; pitch = cam.pitch;
+    dist = (Math.max(mapW, mapH) / (2 * Math.tan(FOV / 2))) * 0.95 / cam.zoom;
+  }
+  C.pitch = pitch;
+  C.eye = [target[0] + dist * Math.cos(pitch) * Math.sin(yaw), target[1] - dist * Math.cos(pitch) * Math.cos(yaw), target[2] + dist * Math.sin(pitch)];
+  C.f = norm([target[0] - C.eye[0], target[1] - C.eye[1], target[2] - C.eye[2]]);
+  C.r = norm([C.f[1], -C.f[0], 0]);
+  C.u = cross(C.r, C.f);
+  return C;
+}
+
+// World point to [screen x, screen y, depth].
+function proj(C, x, y, z) {
+  const d = [x - C.eye[0], y - C.eye[1], z - C.eye[2]];
+  const cx = dot(d, C.r), cy = dot(d, C.u), cz = dot(d, C.f);
+  if (C.ortho) return [C.W / 2 + C.k * cx, C.H / 2 - C.k * cy, cz];
+  return [C.W / 2 + C.fpx * cx / Math.max(cz, 1e-4), C.H / 2 - C.fpx * cy / Math.max(cz, 1e-4), cz];
+}
+const visible = (C, p) => C.ortho || p[2] > NEAR;
+
+function polyPath(ctx, pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+// ---- The robot, built from the firmware's own dimensions ----
+function boxFaces(x0, x1, y0, y1, z0, z1, tone) {
+  const f = (pts, n) => ({ pts, n, tone });
+  return [
+    f([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], [1, 0, 0]),
+    f([[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]], [-1, 0, 0]),
+    f([[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]], [0, 1, 0]),
+    f([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0]),
+    f([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1]),
+  ];
+}
+
+function buildRobot() {
+  const wb = geometry(0), fwd = geometry(1), spacing = geometry(2), n = geometry(4);
+  const rear = geometry(6), wr = geometry(7), ww = geometry(8), bl = geometry(9), bh = geometry(10), clr = geometry(11);
+  const bw = wb - ww - 0.004;                 // chassis width: between the wheels
+  const zt = clr + bh;                        // chassis top
+  const barW = n * spacing - spacing + 0.012; // sensor board width
+  const faces = [];
+  const add = (...a) => faces.push(...boxFaces(...a));
+  add(-bl / 2, bl / 2, -bw / 2, bw / 2, clr, zt, 250);                       // chassis
+  add(-0.029, 0.029, -0.029, 0.029, zt, zt + 0.0016, 150);                    // the line follower card (a dummy board)
+  add(-0.004, 0.012, -0.008, 0.008, zt + 0.0016, zt + 0.0046, 40);            // microcontroller
+  add(0.014, 0.024, -0.016, -0.006, zt + 0.0016, zt + 0.0036, 60);            // motor driver
+  add(-0.024, -0.006, 0.010, 0.026, zt + 0.0016, zt + 0.0126, 80);            // battery
+  add(fwd - 0.004, fwd + 0.004, -barW / 2, barW / 2, 0.004, 0.0085, 70);      // front sensor board
+  add(bl / 2 - 0.001, fwd - 0.004, -0.010, 0.010, 0.010, 0.0135, 130);        // front arm
+  add(-rear - 0.004, -rear + 0.004, -barW / 2, barW / 2, 0.004, 0.0085, 70);  // rear sensor board
+  add(-rear + 0.004, -bl / 2 + 0.001, -0.010, 0.010, 0.010, 0.0135, 130);     // rear arm
+  add(0.020, 0.028, -0.004, 0.004, 0, clr, 120);                              // front caster
+  add(-0.028, -0.020, -0.004, 0.004, 0, clr, 120);                            // rear caster
+  return { faces, wb, wr, ww, bl, bw };
+}
+
+function wheelFaces(m, side, ang) {
+  const N = 18, r = m.wr, hw = m.ww / 2, yc = side * m.wb / 2, out = [];
+  const pt = (a, y, rad = r) => [rad * Math.cos(a), y, r + rad * Math.sin(a)];
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * 2 * Math.PI, a1 = ((i + 1) / N) * 2 * Math.PI, mid = (a0 + a1) / 2;
+    out.push({ pts: [pt(a0, yc - hw), pt(a1, yc - hw), pt(a1, yc + hw), pt(a0, yc + hw)], n: [Math.cos(mid), 0, Math.sin(mid)], tone: 55 });
+  }
+  const ring = (y) => Array.from({ length: N }, (_, i) => pt((i / N) * 2 * Math.PI, y));
+  out.push({ pts: ring(yc + hw), n: [0, 1, 0], tone: 70 });
+  out.push({ pts: ring(yc - hw), n: [0, -1, 0], tone: 70 });
+  // A light spoke on the outer face so the wheel's turning can be seen.
+  const y = yc + side * (hw + 0.0004), c = Math.cos(ang), s = Math.sin(ang), t = 0.0022;
+  out.push({ pts: [[0 - s * t, y, r + c * t], [0.85 * r * c - s * t, y, r + 0.85 * r * s + c * t], [0.85 * r * c + s * t, y, r + 0.85 * r * s - c * t], [s * t, y, r - c * t]], n: [0, side, 0], tone: 225, bias: -0.03 });
+  return out;
+}
+
+function drawRobot(ctx, C) {
+  if (!robotModel) robotModel = buildRobot();
+  const m = robotModel;
+  const px = ex.run_pose_x(), py = ex.run_pose_y(), h = ex.run_pose_heading();
+  const ch = Math.cos(h), sh = Math.sin(h);
+  const toWorld = (p) => [px + p[0] * ch - p[1] * sh, py + p[0] * sh + p[1] * ch, p[2]];
+  const rot = (n) => [n[0] * ch - n[1] * sh, n[0] * sh + n[1] * ch, n[2]];
+
+  // Soft footprint on the floor.
+  const fp = [[-0.045, -0.055], [0.05, -0.055], [0.05, 0.055], [-0.045, 0.055]].map((p) => proj(C, ...toWorld([p[0], p[1], 0.0004])));
+  if (fp.every((p) => visible(C, p))) { polyPath(ctx, fp); ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.fill(); }
+
+  const faces = [...m.faces, ...wheelFaces(m, 1, ui.wheelAng[0]), ...wheelFaces(m, -1, ui.wheelAng[1])];
+  const drawn = [];
+  for (const f of faces) {
+    const wp = f.pts.map(toWorld);
+    const c = wp.reduce((a, p) => [a[0] + p[0] / wp.length, a[1] + p[1] / wp.length, a[2] + p[2] / wp.length], [0, 0, 0]);
+    const n = rot(f.n);
+    const toEye = C.ortho ? [-C.f[0], -C.f[1], -C.f[2]] : [C.eye[0] - c[0], C.eye[1] - c[1], C.eye[2] - c[2]];
+    if (dot(n, toEye) <= 0) continue;
+    const sp = wp.map((p) => proj(C, ...p));
+    if (!sp.every((p) => visible(C, p))) continue;
+    const depth = sp.reduce((a, p) => a + p[2], 0) / sp.length + (f.bias || 0);
+    const lum = 0.5 + 0.5 * Math.max(0, dot(n, LIGHT));
+    drawn.push({ sp, depth, g: Math.min(255, Math.round(f.tone * lum)) });
+  }
+  drawn.sort((a, b) => b.depth - a.depth);
+  ctx.lineWidth = 0.7;
+  ctx.lineJoin = "round";
+  for (const d of drawn) {
+    polyPath(ctx, d.sp);
+    ctx.fillStyle = `rgb(${d.g},${d.g},${d.g})`;
+    ctx.fill();
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.stroke();
+  }
+}
+
 function draw() {
-  const { canvas, ctx, centre, count, bounds } = view;
+  const { canvas, ctx, centre, count, bounds, edges } = view;
   if (!ctx || !centre) return;
   const rect = canvas.getBoundingClientRect();
-  // The canvas fills its container, so the view takes whatever height the laptop screen leaves.
-  const cssW = rect.width || 640;
-  const cssH = rect.height || 480;
+  const W = rect.width || 640, H = rect.height || 480;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
-
-  const pad = 0.14;
-  const worldW = bounds.maxX - bounds.minX + 2 * pad;
-  const worldH = bounds.maxY - bounds.minY + 2 * pad;
-  const s = Math.min(cssW / worldW, cssH / worldH);
-  // World metres to device pixels, with y flipped so that +y points up the screen.
-  const ox = (cssW - worldW * s) / 2 - (bounds.minX - pad) * s;
-  const oy = (cssH + worldH * s) / 2 + (bounds.minY - pad) * s;
-  ctx.setTransform(dpr * s, 0, 0, -dpr * s, dpr * ox, dpr * oy);
-  ctx.clearRect(-1e3, -1e3, 1e4, 1e4);
+  if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#efefef";
+  ctx.fillRect(0, 0, W, H);
+  const C = makeCamera(W, H);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // Painted line: solid where the C++ map has tape, dotted where it has a gap.
-  const lw = geometry(3);
-  ctx.lineWidth = lw;
-  ctx.strokeStyle = cssVar("--track");
-  for (let i = 1; i < count; i++) {
-    const a = i - 1, b = i;
-    const hasLine = centre[a * 5 + 4] > 0.5 && centre[b * 5 + 4] > 0.5;
-    if (!hasLine) continue;
-    ctx.beginPath();
-    ctx.moveTo(centre[a * 5], centre[a * 5 + 1]);
-    ctx.lineTo(centre[b * 5], centre[b * 5 + 1]);
-    ctx.stroke();
+  // Floor grid, one line every 25 cm.
+  ctx.strokeStyle = "#dadada";
+  ctx.lineWidth = 1;
+  const g0x = Math.floor((bounds.minX - 0.25) / 0.25) * 0.25, g1x = Math.ceil((bounds.maxX + 0.25) / 0.25) * 0.25;
+  const g0y = Math.floor((bounds.minY - 0.25) / 0.25) * 0.25, g1y = Math.ceil((bounds.maxY + 0.25) / 0.25) * 0.25;
+  const seg = (a, b) => {
+    const p = proj(C, ...a), q = proj(C, ...b);
+    if (!visible(C, p) || !visible(C, q)) return;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  };
+  for (let x = g0x; x <= g1x + 1e-6; x += 0.25) seg([x, g0y, 0], [x, g1y, 0]);
+  for (let y = g0y; y <= g1y + 1e-6; y += 0.25) seg([g0x, y, 0], [g1x, y, 0]);
+
+  // Project the tape edges once: outer edge (the black tape) and inner edge (the speed profile strip).
+  const PL = [], PR = [], Pl = [], Pr = [];
+  for (let i = 0; i < count; i++) {
+    const e = edges, o = i * 8;
+    PL.push(proj(C, e[o], e[o + 1], 0)); PR.push(proj(C, e[o + 2], e[o + 3], 0));
+    Pl.push(proj(C, e[o + 4], e[o + 5], 0)); Pr.push(proj(C, e[o + 6], e[o + 7], 0));
   }
+  const strip = (A, B, i, fill) => {
+    const q = [A[i - 1], B[i - 1], B[i], A[i]];
+    if (!q.every((p) => visible(C, p))) return;
+    polyPath(ctx, q);
+    ctx.fillStyle = fill; ctx.strokeStyle = fill; ctx.lineWidth = 0.6;
+    ctx.fill(); ctx.stroke();
+  };
+  for (let i = 1; i < count; i++) {
+    if (centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5) strip(PL, PR, i, "#111111");
+  }
+  // Gaps in the tape: a thin dotted centre line.
   ctx.save();
-  ctx.setLineDash([0.02, 0.02]);
-  ctx.strokeStyle = cssVar("--muted");
-  ctx.lineWidth = 0.004;
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = "#8a8a8a";
+  ctx.lineWidth = 1;
   for (let i = 1; i < count; i++) {
     if (centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5) continue;
-    ctx.beginPath();
-    ctx.moveTo(centre[(i - 1) * 5], centre[(i - 1) * 5 + 1]);
-    ctx.lineTo(centre[i * 5], centre[i * 5 + 1]);
-    ctx.stroke();
+    const p = proj(C, centre[(i - 1) * 5], centre[(i - 1) * 5 + 1], 0), q = proj(C, centre[i * 5], centre[i * 5 + 1], 0);
+    if (!visible(C, p) || !visible(C, q)) continue;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
   }
   ctx.restore();
-
-  // Racing speed profile from the C++ planner, painted over the line.
+  // Racing speed profile from the C++ planner: darker is slower, lighter is faster.
   if (ui.showPlan) {
-    ctx.lineWidth = lw * 0.45;
     for (let i = 1; i < count; i++) {
+      if (!(centre[(i - 1) * 5 + 4] > 0.5 && centre[i * 5 + 4] > 0.5)) continue;
       const v = 0.5 * (centre[(i - 1) * 5 + 3] + centre[i * 5 + 3]) / view.topSpeed;
-      ctx.strokeStyle = `hsl(${Math.round(120 * Math.min(1, Math.max(0, v)))} 75% 48%)`;
-      ctx.beginPath();
-      ctx.moveTo(centre[(i - 1) * 5], centre[(i - 1) * 5 + 1]);
-      ctx.lineTo(centre[i * 5], centre[i * 5 + 1]);
-      ctx.stroke();
+      const g = Math.round(35 + 195 * Math.min(1, Math.max(0, v)));
+      strip(Pl, Pr, i, `rgb(${g},${g},${g})`);
     }
   }
 
-  // Start and finish markers.
-  const last = count - 1;
-  const hx = centre[last * 5] - centre[(last - 1) * 5];
-  const hy = centre[last * 5 + 1] - centre[(last - 1) * 5 + 1];
-  const hl = Math.hypot(hx, hy) || 1;
-  const nx = -hy / hl, ny = hx / hl;
-  ctx.strokeStyle = cssVar("--good");
-  ctx.lineWidth = 0.006;
-  ctx.beginPath();
-  ctx.moveTo(centre[last * 5] + nx * 0.05, centre[last * 5 + 1] + ny * 0.05);
-  ctx.lineTo(centre[last * 5] - nx * 0.05, centre[last * 5 + 1] - ny * 0.05);
-  ctx.stroke();
+  // Finish line.
+  const last = count - 1, fe = edges, fo = last * 8;
+  const f1 = proj(C, fe[fo] * 1.0, fe[fo + 1], 0), f2 = proj(C, fe[fo + 2], fe[fo + 3], 0);
+  if (visible(C, f1) && visible(C, f2)) {
+    ctx.beginPath(); ctx.moveTo(f1[0], f1[1]); ctx.lineTo(f2[0], f2[1]);
+    ctx.strokeStyle = "#111"; ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+  }
 
   // Trail of where the robot really went.
-  const n = ex.run_trail_count();
-  if (n > 1) {
-    const tr = floats(ex.run_trail(), n * 2);
-    ctx.strokeStyle = cssVar("--accent");
-    ctx.globalAlpha = 0.55;
-    ctx.lineWidth = 0.004;
+  const nt = ex.run_trail_count();
+  if (nt > 1) {
+    const tr = floats(ex.run_trail(), nt * 2);
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(tr[0], tr[1]);
-    for (let i = 1; i < n; i++) ctx.lineTo(tr[i * 2], tr[i * 2 + 1]);
+    let pen = false;
+    for (let i = 0; i < nt; i++) {
+      const p = proj(C, tr[i * 2], tr[i * 2 + 1], 0.0006);
+      if (!visible(C, p)) { pen = false; continue; }
+      if (pen) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+      pen = true;
+    }
     ctx.stroke();
-    ctx.globalAlpha = 1;
   }
 
-  drawRobot(ctx);
+  // What each sensor reads, painted on the floor under it: filled means it sees the tape.
+  const n = geometry(4);
+  const sensors = floats(ex.run_sensors(), 2 * n * 3);
+  for (let i = 0; i < 2 * n; i++) {
+    const p = proj(C, sensors[i * 3 + 1], sensors[i * 3 + 2], 0.0006);
+    if (!visible(C, p)) continue;
+    const rp = 0.0048 * (C.ortho ? C.k : C.fpx / p[2]);
+    ctx.beginPath();
+    ctx.ellipse(p[0], p[1], rp, rp * Math.max(0.2, Math.sin(C.pitch)), 0, 0, Math.PI * 2);
+    ctx.fillStyle = sensors[i * 3] > 0.5 ? "#111" : "#fff";
+    ctx.fill();
+    ctx.strokeStyle = sensors[i * 3] > 0.5 ? "#fff" : "#111";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  drawRobot(ctx, C);
 }
 
-function drawRobot(ctx) {
-  const x = ex.run_pose_x(), y = ex.run_pose_y(), th = ex.run_pose_heading();
-  const wb = geometry(0), fwd = geometry(1), spacing = geometry(2), n = geometry(4);
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(th);
-  // Body and wheels.
-  ctx.fillStyle = cssVar("--accent");
-  ctx.globalAlpha = 0.9;
-  ctx.fillRect(-0.05, -wb / 2 - 0.012, 0.1, wb + 0.024);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = cssVar("--ink");
-  ctx.fillRect(-0.02, -wb / 2 - 0.016, 0.04, 0.008);
-  ctx.fillRect(-0.02, wb / 2 + 0.008, 0.04, 0.008);
-  // Heading arrow.
-  ctx.fillStyle = cssVar("--canvas");
-  ctx.beginPath();
-  ctx.moveTo(0.05, 0);
-  ctx.lineTo(0.02, 0.012);
-  ctx.lineTo(0.02, -0.012);
-  ctx.closePath();
-  ctx.fill();
-  // Sensor bar: each dot shows what that sensor reads (dark = over the tape).
-  // The rear row (Double IR) is drawn too; the other modes only read the front row.
-  const sensors = floats(ex.run_sensors(), 2 * n * 3);
-  const rear = geometry(6);
-  ctx.lineWidth = 0.002;
-  ctx.strokeStyle = cssVar("--muted");
-  for (let row = 0; row < 2; row++) {
-    const x = row === 0 ? fwd : -rear;
-    ctx.beginPath();
-    ctx.moveTo(x, (n - 1) * spacing / 2);
-    ctx.lineTo(x, -(n - 1) * spacing / 2);
-    ctx.stroke();
-    for (let i = 0; i < n; i++) {
-      const v = sensors[(row * n + i) * 3];
-      const lat = ((n - 1) / 2 - i) * spacing;
-      ctx.fillStyle = v > 0.5 ? cssVar("--good") : cssVar("--sensor-off");
-      ctx.beginPath();
-      ctx.arc(x, lat, 0.0045, 0, Math.PI * 2);
-      ctx.fill();
-    }
+// Tape edges, from the C++ centre line: outer (full tape width) and inner (profile strip), left then right.
+function computeEdges(c, n) {
+  const e = new Float32Array(n * 8);
+  const half = geometry(3) / 2, inner = half * 0.45;
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    const dx = c[b * 5] - c[a * 5], dy = c[b * 5 + 1] - c[a * 5 + 1];
+    const l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+    const x = c[i * 5], y = c[i * 5 + 1];
+    e.set([x + nx * half, y + ny * half, x - nx * half, y - ny * half, x + nx * inner, y + ny * inner, x - nx * inner, y - ny * inner], i * 8);
   }
-  ctx.restore();
+  return e;
 }
 
 function cssVar(name) {
