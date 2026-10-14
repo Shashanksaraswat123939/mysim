@@ -16,14 +16,15 @@ float tanhApprox(float z) {
 
 }  // namespace
 
-bool World::start(uint8_t mapIndex, Mode mode, float pidSpeed, const PlantParams& plant, uint32_t seed) {
+bool World::start(uint8_t mapIndex, Mode mode, float speed, const PlantParams& plant, uint32_t seed) {
   const MapInfo& map = mapInfo(mapIndex);
   track_.init(map.segments, map.count);
-  if (!plan_.build(track_)) return false;
+  if (!plan_.build(track_, speed)) return false;
   buildCentre();
 
-  Tuning tuning = defaultTuning();
-  tuning.pidSpeed = pidSpeed;
+  Tuning tuning = defaultTuning(mode);
+  tuning.pidSpeed = speed;
+  tuning.topSpeed = speed;
   ctrl_.begin(mode, &track_, &plan_, tuning);
 
   plant_ = plant;

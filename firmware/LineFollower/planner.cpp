@@ -2,7 +2,7 @@
 #include "config.h"
 #include "mathlite.h"
 
-bool RacingPlan::build(const Track& track) {
+bool RacingPlan::build(const Track& track, float topSpeed) {
   const float len = track.length();
   uint16_t n = (uint16_t)(len / kPlanSpacing);
   if ((float)n * kPlanSpacing < len) ++n;  // round up so the samples reach the finish
@@ -19,7 +19,7 @@ bool RacingPlan::build(const Track& track) {
     float k = mlite::fabs(track.curvatureAt(i * spacing_));
     if (i > 0) k = mlite::fmax(k, mlite::fabs(track.curvatureAt((i - 1) * spacing_)));
     if (i + 1 < n) k = mlite::fmax(k, mlite::fabs(track.curvatureAt((i + 1) * spacing_)));
-    float v = config::kPlanVMax;
+    float v = topSpeed;
     if (k > 1e-4f) {
       const float corner = mlite::sqrt(config::kPlanLatAccel / k);
       if (corner < v) v = corner;

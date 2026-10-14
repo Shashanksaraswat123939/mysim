@@ -61,7 +61,7 @@ static void testTrackGeometry() {
     const MapInfo& m = mapInfo(i);
     t.init(m.segments, m.count);
     RacingPlan plan;
-    CHECK(plan.build(t));
+    CHECK(plan.build(t, config::kPlanVMax));
     printf("  %-16s length %.2f m, planned lap %.2f s\n", m.name, t.length(), plan.idealLapTime());
     CHECK(t.length() > 1.0f && t.length() < 8.0f);
   }
@@ -78,7 +78,7 @@ static void testPlanLimits() {
     const MapInfo& m = mapInfo(i);
     t.init(m.segments, m.count);
     RacingPlan plan;
-    CHECK(plan.build(t));
+    CHECK(plan.build(t, config::kPlanVMax));
     const float ds = plan.spacing();
     const float tol = 1e-3f;
     const float L = t.length();
@@ -104,7 +104,7 @@ static void testPlanLimits() {
   Track t;
   t.init(straight, 1);
   RacingPlan plan;
-  CHECK(plan.build(t));
+  CHECK(plan.build(t, config::kPlanVMax));
   CHECK(fabsf(plan.speedAt(0.5f) - config::kPlanVMax) < 1e-3f);
 }
 
@@ -113,11 +113,11 @@ static void testControllers() {
   Track t;
   t.init(straight, 1);
   RacingPlan plan;
-  plan.build(t);
+  plan.build(t, config::kPlanVMax);
 
   const float centred[5] = {0, 0, 1, 0, 0};
   const float allWhite[5] = {0, 0, 0, 0, 0};
-  Tuning tuning = defaultTuning();
+  Tuning tuning = defaultTuning(Mode::FullMapIr);
   Command c = {0.0f, 0.0f, RunStatus::Driving};
 
   // Blind on a straight, perfectly centred: both wheels run at the planned speed.
@@ -163,7 +163,7 @@ struct SimResult {
 };
 
 static SimResult runSim(uint8_t map, Mode mode, const PlantParams& plant, uint32_t seed) {
-  g_world.start(map, mode, config::kPidSpeed, plant, seed);
+  g_world.start(map, mode, modeSpeedDefault(mode), plant, seed);
   g_world.runToEnd();
   SimResult r;
   r.finished = g_world.outcome() == Outcome::Finished;
@@ -204,7 +204,7 @@ static void testSimulation() {
 // The grip physics that Double IR's speed rule relies on: at a fixed speed, the sideways slide is larger
 // on a tighter arc. Measured open loop, with the wheels commanded for the arc.
 static float slideOnArc(float radius, float speed) {
-  g_world.start(0, Mode::FullMapBlind, config::kPidSpeed, kRealRobot, 1u);
+  g_world.start(0, Mode::FullMapBlind, modeSpeedDefault(Mode::FullMapBlind), kRealRobot, 1u);
   const float om = speed / radius;
   const float left = speed - om * 0.5f * config::kWheelBase;
   const float right = speed + om * 0.5f * config::kWheelBase;
@@ -236,7 +236,7 @@ static void testDoubleIr() {
   // The Double IR mode finishes every map on the default run, and the curvature it measures on the
   // curved parts stays close to the truth (median error under 25%; measured 6 to 16%).
   for (uint8_t m = 0; m < kMapCount; ++m) {
-    g_world.start(m, Mode::DoubleIr, config::kPidSpeed, kRealRobot, 0x2545F491u);
+    g_world.start(m, Mode::DoubleIr, modeSpeedDefault(Mode::DoubleIr), kRealRobot, 0x2545F491u);
     static float rel[4000];
     int n = 0;
     while (g_world.outcome() == Outcome::Running) {

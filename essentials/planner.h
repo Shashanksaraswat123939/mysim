@@ -12,7 +12,7 @@ constexpr uint16_t kMaxPlanSamples = 410;   // covers 8 m of track
 class RacingPlan {
  public:
   // Returns false if the map is longer than the plan buffer.
-  bool build(const Track& track);
+  bool build(const Track& track, float topSpeed);
 
   float speedAt(float s) const;   // m/s planned at arc length s
   float spacing() const { return spacing_; }  // actual m between samples; they span the map exactly

@@ -33,6 +33,9 @@ constexpr float kPlanBrake = 2.50f;       // m/s^2 braking limit
 
 // ---- Controller tuning -------------------------------------------------------
 constexpr float kPidSpeed = 0.25f;        // m/s base speed for Normal PID
+constexpr float kSpeedMin = 0.20f;        // slowest speed any mode can be set to
+constexpr float kPidSpeedMax = 0.90f;     // fastest base speed for Normal PID
+constexpr float kDoubleIrSpeedMax = 0.80f;  // fastest speed cap for Double IR
 // Normal PID gains are scheduled with its base speed: faster runs need a stiffer steering
 // loop. The values below are the low-speed set (at kPidGainSpeedLow) and the high-speed set
 // (at kPidGainSpeedHigh), blended linearly in between and held at the low set below that.
@@ -47,9 +50,11 @@ constexpr float kPidKdHigh = 14.0f;
 constexpr float kPidSlowdownLow = 0.5f;
 constexpr float kPidSlowdownHigh = 1.0f;
 constexpr float kPidOffsetSlowdownHigh = 80.0f;  // per metre of offset, at the high-speed set
-constexpr float kKp = 160.0f;             // rad/s of steering per metre of line offset (Full map + IR)
+constexpr float kKp = 400.0f;             // rad/s of steering per metre of line offset (Full map + IR)
 constexpr float kKi = 2.0f;
-constexpr float kKd = 14.0f;
+constexpr float kKd = 32.0f;
+constexpr float kDoubleIrKp = 160.0f;     // Double IR steering gains, tuned separately
+constexpr float kDoubleIrKd = 14.0f;
 constexpr float kIntegralLimit = 1.0f;    // rad/s, anti-windup clamp on the I term
 constexpr float kDerivativeTau = 0.03f;   // s, smoothing on the D term so sensor noise is not amplified
 

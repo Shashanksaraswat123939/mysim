@@ -18,11 +18,15 @@ const char* modeSummary(Mode mode);
 
 struct Tuning {
   float pidSpeed;  // m/s base speed for PidOnly
+  float topSpeed;  // m/s cap for the map modes and Double IR
   float kp;
   float ki;
   float kd;
 };
-Tuning defaultTuning();
+Tuning defaultTuning(Mode mode);
+float modeSpeedDefault(Mode mode);
+float modeSpeedMin(Mode mode);
+float modeSpeedMax(Mode mode);
 
 enum class RunStatus : uint8_t {
   Driving = 0,

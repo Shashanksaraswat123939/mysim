@@ -46,14 +46,14 @@ void setup() {
 
   const MapInfo& map = mapInfo(kSelectedMap);
   g_track.init(map.segments, map.count);
-  if (!g_plan.build(g_track)) {
+  if (!g_plan.build(g_track, modeSpeedDefault(kSelectedMode))) {
     Serial.println(F("Map is too long for the planner buffer"));
     while (true) {
       digitalWrite(kPinLed, !digitalRead(kPinLed));
       delay(100);
     }
   }
-  g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning());
+  g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning(kSelectedMode));
   printRunInfo();
 
   Serial.println(F("Calibrating: sensor bar across the line, spinning for 2 s"));
@@ -64,7 +64,7 @@ void setup() {
 void loop() {
   if (!g_running) {
     if (buttonPressed()) {
-      g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning());
+      g_controller.begin(kSelectedMode, &g_track, &g_plan, defaultTuning(kSelectedMode));
       g_running = true;
       g_lastMicros = micros();
       g_lastTelemetry = millis();

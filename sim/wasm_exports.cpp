@@ -25,8 +25,9 @@ __attribute__((export_name("map_summary"))) const char* map_summary(int i) { ret
 __attribute__((export_name("mode_count"))) int mode_count() { return kModeCount; }
 __attribute__((export_name("mode_name"))) const char* mode_name(int i) { return modeName(modeFrom(i)); }
 __attribute__((export_name("mode_summary"))) const char* mode_summary(int i) { return modeSummary(modeFrom(i)); }
-__attribute__((export_name("default_pid_speed"))) float default_pid_speed() { return config::kPidSpeed; }
-__attribute__((export_name("plan_top_speed"))) float plan_top_speed() { return config::kPlanVMax; }
+__attribute__((export_name("mode_speed_default"))) float mode_speed_default(int mode) { return modeSpeedDefault(modeFrom(mode)); }
+__attribute__((export_name("mode_speed_min"))) float mode_speed_min(int mode) { return modeSpeedMin(modeFrom(mode)); }
+__attribute__((export_name("mode_speed_max"))) float mode_speed_max(int mode) { return modeSpeedMax(modeFrom(mode)); }
 
 // Robot and sensor geometry, so the drawing matches the firmware's numbers.
 __attribute__((export_name("geometry"))) float geometry(int which) {
@@ -78,8 +79,8 @@ __attribute__((export_name("run_slip_right"))) float run_slip_right() { return g
 __attribute__((export_name("run_body_speed"))) float run_body_speed() { return g_world.bodySpeed(); }
 __attribute__((export_name("run_slide_speed"))) float run_slide_speed() { return g_world.slideSpeed(); }
 
-__attribute__((export_name("run_start"))) int run_start(int map, int mode, float pidSpeed) {
-  return g_world.start((uint8_t)map, modeFrom(mode), pidSpeed) ? 1 : 0;
+__attribute__((export_name("run_start"))) int run_start(int map, int mode, float speed) {
+  return g_world.start((uint8_t)map, modeFrom(mode), speed) ? 1 : 0;
 }
 __attribute__((export_name("run_advance"))) void run_advance(float seconds) { g_world.advance(seconds); }
 __attribute__((export_name("run_outcome"))) int run_outcome() { return (int)g_world.outcome(); }
@@ -131,8 +132,8 @@ __attribute__((export_name("run_trail"))) const float* run_trail() { return g_wo
 
 // Runs one map to its end with no rendering, for the comparison table.
 // Returns the lap time in seconds, or -1 if the run did not finish.
-__attribute__((export_name("headless_lap"))) float headless_lap(int map, int mode, float pidSpeed) {
-  if (!g_world.start((uint8_t)map, modeFrom(mode), pidSpeed)) {
+__attribute__((export_name("headless_lap"))) float headless_lap(int map, int mode, float speed) {
+  if (!g_world.start((uint8_t)map, modeFrom(mode), speed)) {
     g_headlessOutcome = (int)Outcome::Stopped;
     return -1.0f;
   }

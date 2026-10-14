@@ -76,7 +76,7 @@ const char* outcomeShort(Outcome outcome);  // short text for the comparison tab
 class World {
  public:
   // Returns false only if the map does not fit the planner.
-  bool start(uint8_t mapIndex, Mode mode, float pidSpeed,
+  bool start(uint8_t mapIndex, Mode mode, float speed,
              const PlantParams& plant = kRealRobot, uint32_t seed = 0x2545F491u);
   void advance(float seconds);
   void runToEnd();  // headless: used for the comparison table

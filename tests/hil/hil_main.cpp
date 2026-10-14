@@ -68,7 +68,7 @@ int main() {
   calibrationSpot.startX = -0.04f;
   calibrationSpot.startY = 0.0f;
   calibrationSpot.startHeading = 0.0f;
-  g_world.start(0, Mode::FullMapIr, config::kPidSpeed, calibrationSpot);
+  g_world.start(0, Mode::FullMapIr, modeSpeedDefault(Mode::FullMapIr), calibrationSpot);
 
   setup();  // calibrates, then waits for the button
 

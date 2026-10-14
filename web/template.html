@@ -132,8 +132,8 @@
       <h2>Control mode</h2>
       <div class="modes" id="modes" role="radiogroup" aria-label="Control mode"></div>
       <label class="field" style="margin-top:14px" for="pidSpeed">
-        <span>Normal PID base speed: <span id="pidValue"></span> m/s</span>
-        <input type="range" id="pidSpeed" min="0.20" max="0.90" step="0.01">
+        <span><span id="speedName">Speed</span>: <span id="pidValue"></span> m/s</span>
+        <input type="range" id="pidSpeed" step="0.01">
       </label>
     </section>
 
@@ -224,7 +224,7 @@ const ui = {
   lastFrame: 0,
   map: 0,
   mode: 2,
-  pid: 0.25,
+  speed: 0.25,
   outcome: 0,
   showPlan: true,
 };
@@ -241,8 +241,6 @@ function boot() {
 
 function setup() {
   view.ctx = view.canvas.getContext("2d");
-  view.topSpeed = ex.plan_top_speed();
-  $("topSpeed").textContent = ex.plan_top_speed().toFixed(1) + " m/s";
 
   // Maps: names and summaries straight from the C++ catalogue.
   const mapSelect = $("map");
@@ -273,9 +271,7 @@ function setup() {
   }
 
   $("compare").textContent = `Run all ${ex.map_count() * ex.mode_count()} combinations`;
-  ui.pid = ex.default_pid_speed();
-  $("pidSpeed").value = ui.pid;
-  $("pidValue").textContent = ui.pid.toFixed(2);
+  setSpeedForMode();
 
   // Robot physics: values from the C++ PlantParams, labels here.
   const plantRows = [
@@ -319,11 +315,11 @@ function setup() {
 function bindEvents() {
   $("map").addEventListener("change", (e) => { ui.map = +e.target.value; $("mapSummary").textContent = str(ex.map_summary(ui.map)); loadRun(); });
   document.querySelectorAll('input[name="mode"]').forEach((el) => {
-    el.addEventListener("change", (e) => { ui.mode = +e.target.value; loadRun(); });
+    el.addEventListener("change", (e) => { ui.mode = +e.target.value; setSpeedForMode(); loadRun(); });
   });
   $("pidSpeed").addEventListener("input", (e) => {
-    ui.pid = +e.target.value;
-    $("pidValue").textContent = ui.pid.toFixed(2);
+    ui.speed = +e.target.value;
+    $("pidValue").textContent = ui.speed.toFixed(2);
   });
   $("pidSpeed").addEventListener("change", () => loadRun());
   $("start").addEventListener("click", () => {
@@ -360,10 +356,24 @@ function bindEvents() {
   view.canvas.addEventListener("wheel", (e) => { e.preventDefault(); cam.zoom = Math.min(6, Math.max(0.3, cam.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
 }
 
+// Each mode has its own speed: the firmware gives the default, the slowest and the fastest.
+function setSpeedForMode() {
+  const names = ["Base speed", "Top speed", "Top speed", "Speed cap"];
+  const slider = $("pidSpeed");
+  slider.min = ex.mode_speed_min(ui.mode);
+  slider.max = ex.mode_speed_max(ui.mode);
+  ui.speed = ex.mode_speed_default(ui.mode);
+  slider.value = ui.speed;
+  $("pidValue").textContent = ui.speed.toFixed(2);
+  $("speedName").textContent = names[ui.mode];
+}
+
 // Starts the chosen map and mode in C++ and reads back the geometry for drawing.
 function loadRun() {
   ui.running = false;
-  ex.run_start(ui.map, ui.mode, ui.pid);
+  ex.run_start(ui.map, ui.mode, ui.speed);
+  view.topSpeed = ui.speed;
+  $("topSpeed").textContent = ui.speed.toFixed(2) + " m/s";
   ui.outcome = 0;
   const n = ex.run_centre_count();
   view.count = n;
@@ -718,7 +728,7 @@ function runComparison() {
     const outs = [];
     let planLap = 0;
     for (let md = 0; md < ex.mode_count(); md++) {
-      const lap = ex.headless_lap(m, md, ui.pid);
+      const lap = ex.headless_lap(m, md, ex.mode_speed_default(md));
       laps.push(lap);
       outs.push(ex.headless_outcome());
       if (md === 0) planLap = ex.run_plan_lap();

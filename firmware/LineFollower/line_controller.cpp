@@ -26,9 +26,32 @@ const char* modeSummary(Mode mode) {
   return "";
 }
 
-Tuning defaultTuning() {
+float modeSpeedDefault(Mode mode) {
+  switch (mode) {
+    case Mode::PidOnly: return config::kPidSpeed;
+    case Mode::FullMapBlind:
+    case Mode::FullMapIr: return config::kPlanVMax;
+    case Mode::DoubleIr: return config::kDoubleIrVMax;
+  }
+  return config::kPidSpeed;
+}
+
+float modeSpeedMin(Mode) { return config::kSpeedMin; }
+
+float modeSpeedMax(Mode mode) {
+  switch (mode) {
+    case Mode::PidOnly: return config::kPidSpeedMax;
+    case Mode::FullMapBlind:
+    case Mode::FullMapIr: return config::kPlanVMax;
+    case Mode::DoubleIr: return config::kDoubleIrSpeedMax;
+  }
+  return config::kPidSpeed;
+}
+
+Tuning defaultTuning(Mode mode) {
   Tuning t;
-  t.pidSpeed = config::kPidSpeed;
+  t.pidSpeed = modeSpeedDefault(mode);
+  t.topSpeed = modeSpeedDefault(mode);
   t.kp = config::kKp;
   t.ki = config::kKi;
   t.kd = config::kKd;
@@ -197,7 +220,7 @@ Command LineController::doubleIr(const LineEstimate& front, const float* rearSen
   //    no faster than the plan's acceleration and braking limits.
   const float absK = mlite::fmax(mlite::fabs(kappa_), 1e-3f);
   float target = mlite::sqrt(config::kDoubleIrLatAccel / absK);
-  if (target > config::kDoubleIrVMax) target = config::kDoubleIrVMax;
+  if (target > tuning_.topSpeed) target = tuning_.topSpeed;
   speedCmd_ = mlite::clamp(target, speedCmd_ - config::kPlanBrake * dt, speedCmd_ + config::kPlanAccel * dt);
   if (speedCmd_ < config::kLaunchSpeed) speedCmd_ = config::kLaunchSpeed;
 
@@ -205,7 +228,7 @@ Command LineController::doubleIr(const LineEstimate& front, const float* rearSen
   float omega = speedCmd_ * kappa_;
   if (front.seen) {
     lastOffset_ = front.offset;
-    omega += pid(front.offset, dt, tuning_.kp, tuning_.kd);
+    omega += pid(front.offset, dt, config::kDoubleIrKp, config::kDoubleIrKd);
   } else {
     havePrev_ = false;  // no derivative spike when the line comes back
   }
